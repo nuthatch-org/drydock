@@ -193,6 +193,27 @@ fn reachable_from_container(dir: &Path, url: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+fn copy_in(dir: &Path, f: &stack::Copied) -> Result<()> {
+    let out = Process::new("docker")
+        .arg("compose")
+        .arg("-f")
+        .arg(dir.join("docker-compose.yml"))
+        .arg("cp")
+        .arg(dir.join(f.file))
+        .arg(format!("{}:{}", f.service, f.dest))
+        .output()
+        .context("could not run `docker compose cp`")?;
+    if !out.status.success() {
+        bail!(
+            "could not copy {} into the {} container: {}",
+            f.file,
+            f.service,
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 /// The reason graph-node's container is not running, if it is not.
 fn graph_node_stopped(dir: &Path) -> Option<String> {
     let out = |cmd: &mut Process| {
@@ -345,10 +366,6 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 start: (report.start > needs.start_block).then_some(report.start),
             };
             std::fs::write(
-                dir.join("config.toml"),
-                stack::config_toml(&network, &url, rps, &report),
-            )?;
-            std::fs::write(
                 dir.join("docker-compose.yml"),
                 stack::compose_yaml_with(
                     &state.project,
@@ -363,13 +380,18 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 serde_json::to_string_pretty(&state)?,
             )?;
             std::fs::write(dir.join(".gitignore"), "*\n")?;
-            std::fs::create_dir_all(dir.join("ui"))?;
-            // Docker does not restart a container when a file mounted into it changes.
+            // A container reads its configuration once, so one whose file changed is restarted.
             let mut stale = Vec::new();
+            if changed(
+                &dir.join("config.toml"),
+                &stack::config_toml(&network, &url, rps, &report),
+            )? {
+                stale.push("graph-node");
+            }
             if changed(&dir.join("ui.conf"), stack::ui_conf())? {
                 stale.push("ui");
             }
-            std::fs::write(dir.join("ui").join("index.html"), stack::UI_HTML)?;
+            std::fs::write(dir.join("index.html"), stack::UI_HTML)?;
             let page_data = |hash: &str| {
                 let findings: Vec<_> = report
                     .findings
@@ -385,7 +407,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     .collect();
                 serde_json::json!({ "name": state.name, "network": network, "hash": hash, "queryPort": ports.query, "rps": rps, "findings": findings }).to_string()
             };
-            std::fs::write(dir.join("ui").join("drydock.json"), page_data(""))?;
+            std::fs::write(dir.join("drydock.json"), page_data(""))?;
 
             if rps > 0 {
                 if changed(&dir.join("nginx.conf"), &stack::governor_conf(&url, rps)?)? {
@@ -398,6 +420,14 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 println!(
                     "Starting graph-node, Postgres and IPFS, with no limit on requests to the endpoint…"
                 );
+            }
+            // Created, filled, then started: the files are copied in, not mounted, so it does
+            // not matter whether Docker can see this folder.
+            compose(&dir, &["up", "--no-start", "--quiet-pull"])?;
+            for f in &stack::COPIED {
+                if dir.join(f.file).exists() && (rps > 0 || f.service != "rpc") {
+                    copy_in(&dir, f)?;
+                }
             }
             compose(&dir, &["up", "-d", "--quiet-pull"])?;
             if previous.is_some() && !stale.is_empty() {
@@ -442,7 +472,10 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             })?;
             let hash = node.ipfs_add("subgraph.yaml", linked.into_bytes()).await?;
             node.deploy(&state.name, &hash).await?;
-            std::fs::write(dir.join("ui").join("drydock.json"), page_data(&hash))?;
+            std::fs::write(dir.join("drydock.json"), page_data(&hash))?;
+            if let Some(page) = stack::COPIED.iter().find(|f| f.file == "drydock.json") {
+                copy_in(&dir, page)?;
+            }
 
             println!("\nDeployed {hash} as {}.", state.name);
             println!("  Open:   http://localhost:{}", ports.ui);
