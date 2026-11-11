@@ -204,6 +204,22 @@ there.
 **Open, for when it is scheduled:** free or paid, how long a deployment lives, which chains, and
 whether it sits on the Helsinki boxes or somewhere new.
 
+## Later: in the browser
+
+Asked by Chief on 2026-11-11: could all of this run in the developer's browser as WebAssembly?
+
+**Not graph-node.** It needs Postgres and embeds its own WebAssembly engine for mappings, and an
+engine cannot run inside the thing it implements. A browser subgraph runner would be a different
+program: the browser's engine running the mapping, with graph-node's host functions, a store and
+a GraphQL layer written again. That is months of work and a reimplementation, so "it syncs here"
+would stop meaning "it syncs there". burrmill-wasm shows the query half is not far-fetched; the
+mapping runtime is the hard half. Recorded as a long shot.
+
+**The preflight could, cheaply.** It is RPC probes plus a manifest and a compiled mapping. As a
+page on Lodestar: paste an RPC URL and a deployment, and be told whether the endpoint can carry
+it, with nothing installed. Unverified: that the endpoints people use accept requests from a
+browser. That is the first thing to check, and it is small.
+
 ## What it will not do
 
 - **Make a bad RPC good.** An old subgraph on a free endpoint will be slow, and sib will say how
