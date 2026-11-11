@@ -200,6 +200,23 @@ http {{
 }
 
 pub fn compose_yaml(project: &str, ports: Ports, rps: u32, report: &Report) -> String {
+    compose_yaml_with(project, ports, rps, report, None)
+}
+
+/// As [`compose_yaml`], with graph-node from another image: `DRYDOCK_GRAPH_NODE_IMAGE`. The
+/// published image is x86-64 only, so it is pinned to that platform; one named by hand is
+/// taken to be built for the machine it is on.
+pub fn compose_yaml_with(
+    project: &str,
+    ports: Ports,
+    rps: u32,
+    report: &Report,
+    graph_node_image: Option<&str>,
+) -> String {
+    let graph_node = match graph_node_image {
+        Some(image) => format!("image: {image}"),
+        None => format!("image: {GRAPH_NODE_IMAGE}\n    platform: linux/amd64"),
+    };
     let range = report.max_block_range.unwrap_or(10);
     let (depends, governor) = if rps > 0 {
         (
@@ -215,8 +232,7 @@ pub fn compose_yaml(project: &str, ports: Ports, rps: u32, report: &Report) -> S
         r#"name: {project}
 services:
   graph-node:
-    image: {GRAPH_NODE_IMAGE}
-    platform: linux/amd64
+    {graph_node}
     depends_on: {depends}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -328,6 +344,18 @@ mod tests {
             &report(Some(2000), vec![]),
         );
         assert!(c.contains(r#"command: ["daemon", "--migrate=true", "--offline"]"#));
+    }
+
+    #[test]
+    fn another_graph_node_image_is_not_pinned_to_x86() {
+        let r = report(Some(2000), vec![]);
+        let stock = compose_yaml("p", Ports::default(), 15, &r);
+        assert!(stock.contains(&format!(
+            "  graph-node:\n    image: {GRAPH_NODE_IMAGE}\n    platform: linux/amd64\n    depends_on"
+        )));
+        let own = compose_yaml_with("p", Ports::default(), 15, &r, Some("me/graph-node:arm64"));
+        assert!(own.contains("  graph-node:\n    image: me/graph-node:arm64\n    depends_on"));
+        assert!(!own.contains("platform:"));
     }
 
     #[test]

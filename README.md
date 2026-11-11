@@ -84,8 +84,12 @@ when you ask.
 
 ## What has not been tried
 
-- **macOS and Windows.** Docker Desktop reaches the host differently from Linux; the code allows
-  for it and nobody has run it.
+- **Apple Silicon with the published graph-node image.** graph-node ships for x86-64 only. Under
+  QEMU emulation (colima's default) it is killed for memory within a minute of syncing, and
+  `drydock status` says so. A graph-node v0.45.0 built for arm64 from source synced here without
+  trouble at 75 MB: build one and name it in `DRYDOCK_GRAPH_NODE_IMAGE`. Docker Desktop with
+  Rosetta has not been tried.
+- **Windows.** Nobody has run it.
 - **Subgraphs with templates, and call handlers.** `preflight` reads both from the manifest, and
   no subgraph that has them has been synced here.
 - **Chains other than Base.** Nothing is chain-specific, and Base is the only one measured.

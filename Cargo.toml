@@ -1,6 +1,6 @@
 [package]
 name = "drydock"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Lodestar Drydock: run a real graph-node on your own machine against your subgraph"
 license = "MIT"

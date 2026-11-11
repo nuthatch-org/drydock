@@ -96,6 +96,14 @@ struct State {
     start: Option<u64>,
 }
 
+impl State {
+    fn without_window(mut self) -> Self {
+        self.last = None;
+        self.start = None;
+        self
+    }
+}
+
 fn default_ui_port() -> u16 {
     Ports::default().ui
 }
@@ -342,7 +350,13 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             )?;
             std::fs::write(
                 dir.join("docker-compose.yml"),
-                stack::compose_yaml(&state.project, ports, rps, &report),
+                stack::compose_yaml_with(
+                    &state.project,
+                    ports,
+                    rps,
+                    &report,
+                    std::env::var("DRYDOCK_GRAPH_NODE_IMAGE").ok().as_deref(),
+                ),
             )?;
             std::fs::write(
                 dir.join("state.json"),
@@ -469,8 +483,15 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         }
 
         Command::Down { subgraph, wipe } => {
-            let (dir, _) = state(&subgraph)?;
+            let (dir, state) = state(&subgraph)?;
             compose(&dir, if wipe { &["down", "-v"] } else { &["down"] })?;
+            if wipe {
+                // The window belonged to the database that has just gone; the next `up` measures afresh.
+                std::fs::write(
+                    dir.join("state.json"),
+                    serde_json::to_string_pretty(&state.without_window())?,
+                )?;
+            }
             println!(
                 "{}",
                 if wipe {
@@ -481,5 +502,21 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             );
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_wipe_forgets_the_window_and_nothing_else() {
+        let before: State = serde_json::from_str(
+            r#"{"name":"local/x","project":"drydock-x","query":8000,"admin":8020,"status":8030,"ipfs":5001,"ui":8787,"last":3000,"start":56091472}"#,
+        )
+        .unwrap();
+        let after = before.without_window();
+        assert_eq!((after.last, after.start), (None, None));
+        assert_eq!((after.name.as_str(), after.ui), ("local/x", 8787));
     }
 }
