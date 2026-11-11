@@ -39,10 +39,40 @@ impl Default for Ports {
     }
 }
 
+/// The same endpoint as a container must spell it. `localhost` inside a container is the
+/// container, so an RPC on the developer's own machine (Anvil, Hardhat, a local node) is reached
+/// through `host.docker.internal`, which the compose file maps to the host. The second value says
+/// whether it was rewritten.
+pub fn from_container(rpc_url: &str) -> (String, bool) {
+    let Ok(mut url) = reqwest::Url::parse(rpc_url) else {
+        return (rpc_url.to_string(), false);
+    };
+    let loopback = matches!(
+        url.host_str(),
+        Some("localhost" | "127.0.0.1" | "[::1]" | "0.0.0.0")
+    );
+    if loopback && url.set_host(Some("host.docker.internal")).is_ok() {
+        return (url.to_string().trim_end_matches('/').to_string(), true);
+    }
+    (rpc_url.to_string(), false)
+}
+
+/// What to do when the containers cannot reach an RPC that this machine can. Docker Desktop
+/// reaches the host's loopback; Docker on Linux reaches the host by its bridge address, where a
+/// server bound to 127.0.0.1 is not listening.
+pub fn local_rpc_fix(linux: bool) -> &'static str {
+    if linux {
+        "On Linux, containers reach this machine at Docker's bridge address, not at 127.0.0.1, so the RPC has to listen on all interfaces: `anvil --host 0.0.0.0`, or `hardhat node --hostname 0.0.0.0`."
+    } else {
+        "Check that it is still running, and that Docker Desktop allows containers to reach the host."
+    }
+}
+
 /// graph-node's `--config` file. Config mode is the only one that can switch the log store on,
 /// which is what puts mapping logs behind `_logs` on the query port.
 pub fn config_toml(network: &str, rpc_url: &str, rps: u32, report: &Report) -> String {
-    let rpc_url = if rps > 0 { GOVERNED_URL } else { rpc_url };
+    let direct = from_container(rpc_url).0;
+    let rpc_url = if rps > 0 { GOVERNED_URL } else { &direct };
     let features = report
         .features
         .iter()
@@ -115,6 +145,14 @@ pub fn governor_conf(rpc_url: &str, rps: u32) -> anyhow::Result<String> {
     let host = url
         .host_str()
         .ok_or_else(|| anyhow::anyhow!("the RPC URL has no host"))?;
+    let (upstream, local) = from_container(rpc_url);
+    // A remote endpoint behind a CDN is chosen by its Host header. A local one is not, and
+    // would be told the wrong name.
+    let host_header = if local {
+        String::new()
+    } else {
+        format!("      proxy_set_header Host {host};\n")
+    };
     Ok(format!(
         r#"events {{}}
 http {{
@@ -125,10 +163,9 @@ http {{
     location / {{
       limit_req zone=rpc burst=4000;
       limit_req_status 429;
-      proxy_pass {rpc_url};
+      proxy_pass {upstream};
       proxy_ssl_server_name on;
-      proxy_set_header Host {host};
-      proxy_http_version 1.1;
+{host_header}      proxy_http_version 1.1;
       proxy_set_header Connection "";
       proxy_read_timeout 300s;
     }}
@@ -144,7 +181,7 @@ pub fn compose_yaml(project: &str, ports: Ports, rps: u32, report: &Report) -> S
         (
             "[ipfs, postgres, rpc]",
             format!(
-                "  rpc:\n    image: {GOVERNOR_IMAGE}\n    volumes:\n      - ./nginx.conf:/etc/nginx/nginx.conf:ro\n"
+                "  rpc:\n    image: {GOVERNOR_IMAGE}\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n    volumes:\n      - ./nginx.conf:/etc/nginx/nginx.conf:ro\n"
             ),
         )
     } else {
@@ -156,6 +193,8 @@ services:
   graph-node:
     image: {GRAPH_NODE_IMAGE}
     depends_on: {depends}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:{query}:8000"
       - "127.0.0.1:{admin}:8020"
@@ -193,6 +232,8 @@ services:
   ui:
     image: {GOVERNOR_IMAGE}
     depends_on: [graph-node]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:{ui}:8787"
     volumes:
@@ -260,7 +301,9 @@ mod tests {
         );
         let published: Vec<&str> = c
             .lines()
-            .filter(|l| l.trim_start().starts_with("- \"") && l.contains(':'))
+            .filter(|l| {
+                l.trim_start().starts_with("- \"") && l.contains(':') && !l.contains("host-gateway")
+            })
             .collect();
         assert_eq!(published.len(), 5);
         assert!(
@@ -395,5 +438,44 @@ mod tests {
                 && UI_HTML.contains("'query/subgraphs/name/'")
         );
         assert!(!UI_HTML.contains('\u{2014}'), "no em dashes");
+    }
+
+    #[test]
+    fn an_rpc_on_the_developers_machine_is_reached_through_the_host() {
+        assert_eq!(
+            from_container("http://localhost:8545"),
+            ("http://host.docker.internal:8545".into(), true)
+        );
+        assert_eq!(
+            from_container("http://127.0.0.1:8545/rpc"),
+            ("http://host.docker.internal:8545/rpc".into(), true)
+        );
+        assert_eq!(
+            from_container("https://base-rpc.publicnode.com"),
+            ("https://base-rpc.publicnode.com".into(), false)
+        );
+        let r = report(Some(2000), vec![]);
+        assert!(
+            config_toml("mainnet", "http://localhost:8545", 0, &r)
+                .contains(r#"url = "http://host.docker.internal:8545""#)
+        );
+        let conf = governor_conf("http://127.0.0.1:8545", 15).unwrap();
+        assert!(conf.contains("proxy_pass http://host.docker.internal:8545;"));
+        assert!(
+            !conf.contains("proxy_set_header Host"),
+            "a local node is not behind a CDN"
+        );
+        let c = compose_yaml("p", Ports::default(), 15, &r);
+        assert_eq!(
+            c.matches("host.docker.internal:host-gateway").count(),
+            3,
+            "graph-node, the governor and the container that checks it all need the mapping"
+        );
+    }
+
+    #[test]
+    fn linux_is_told_to_listen_on_every_interface() {
+        assert!(local_rpc_fix(true).contains("anvil --host 0.0.0.0"));
+        assert!(!local_rpc_fix(false).contains("0.0.0.0"));
     }
 }

@@ -138,3 +138,15 @@ Three faults were found by running it, none by reading it:
   `.sib/state.json` the first time: three runs in a row gave the same hash.
 - **A changed config did not reach a running container.** Docker does not restart one when a
   mounted file changes. sib restarts the proxies whose config it rewrote.
+
+## Fifth run: an RPC on the developer's own machine
+
+A stand-in for Anvil: a proxy to the free endpoint, published on the ThinkPad at `localhost`.
+
+| Case | Result |
+|---|---|
+| Listening where containers can reach it | `sib up --rpc base:http://localhost:18545` rewrote the URL to `host.docker.internal` for the stack and synced |
+| Listening on 127.0.0.1 only | The preflight passed, because this machine can reach it. sib then asked again from inside a container, found it could not, and stopped with the fix (`anvil --host 0.0.0.0`) |
+
+Without the second check graph-node would have started against an RPC it could not reach and
+said nothing useful. Also fixed: `sib status | head -1` panicked on a closed pipe.

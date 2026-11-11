@@ -16,6 +16,9 @@ serde_yaml_ng = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 wasmparser = "0.263"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [profile.release]
 strip = true
 lto = "thin"

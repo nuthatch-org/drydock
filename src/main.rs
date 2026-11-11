@@ -114,6 +114,12 @@ impl State {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // Rust ignores SIGPIPE, so `sib status | head -1` would panic on the second line. Restoring
+    // the default lets the process end quietly when whatever was reading it goes away.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     match run(Cli::parse()).await {
         Ok(code) => code,
         Err(e) => {
@@ -149,6 +155,34 @@ fn changed(path: &Path, content: &str) -> Result<bool> {
     }
     std::fs::write(path, content)?;
     Ok(true)
+}
+
+/// One `eth_chainId` from inside the stack, using the page's container because it has `wget`.
+fn reachable_from_container(dir: &Path, url: &str) -> bool {
+    Process::new("docker")
+        .arg("compose")
+        .arg("-f")
+        .arg(dir.join("docker-compose.yml"))
+        .args([
+            "exec",
+            "-T",
+            "ui",
+            "wget",
+            "-q",
+            "-T",
+            "8",
+            "-O",
+            "/dev/null",
+            "--header",
+            "Content-Type: application/json",
+        ])
+        .arg("--post-data")
+        .arg(r#"{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}"#)
+        .arg(url)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn compose(dir: &Path, args: &[&str]) -> Result<()> {
@@ -329,6 +363,16 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             }
             let node = Node::new(ports);
             node.wait_ready(Duration::from_secs(180)).await?;
+
+            // The preflight ran on this machine, where localhost is this machine. Ask again from
+            // where graph-node will ask.
+            let (inside, local) = stack::from_container(&url);
+            if local && !reachable_from_container(&dir, &inside) {
+                bail!(
+                    "this machine can reach your RPC at {url}, but the containers cannot.\n{}\nThe stack is still up: fix the RPC and run `sib up` again, or stop it with `sib down`",
+                    stack::local_rpc_fix(cfg!(target_os = "linux"))
+                );
+            }
 
             // Two passes over the manifest: one to learn which files it names, one to link them.
             let built = manifest::built_manifest(&target.subgraph);
