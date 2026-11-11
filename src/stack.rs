@@ -68,6 +68,28 @@ pub fn local_rpc_fix(linux: bool) -> &'static str {
     }
 }
 
+/// Why graph-node is not answering, from its container's state, or `None` if it is running.
+/// graph-node ships for x86-64 only; on Apple Silicon it runs emulated, and under QEMU it was
+/// killed for memory within a minute of starting to sync (2026-11-11, colima, 6 GB).
+pub fn why_stopped(state: &str, oom_killed: bool, exit_code: i64, arm: bool) -> Option<String> {
+    if state == "running" {
+        return None;
+    }
+    Some(if oom_killed {
+        let mut s = String::from("graph-node ran out of memory and was killed.");
+        if arm {
+            s.push_str(" graph-node is built for x86-64 only and is being emulated on this machine. With Docker Desktop, turn on Rosetta under Settings > General; QEMU emulation, which colima uses by default, does not survive a sync.");
+        } else {
+            s.push_str(" Give Docker more memory, then `drydock up` again.");
+        }
+        s
+    } else {
+        format!(
+            "graph-node is {state} (exit code {exit_code}). `drydock logs` has its last words; `drydock up` starts it again."
+        )
+    })
+}
+
 /// graph-node's `--config` file. Config mode is the only one that can switch the log store on,
 /// which is what puts mapping logs behind `_logs` on the query port.
 pub fn config_toml(network: &str, rpc_url: &str, rps: u32, report: &Report) -> String {
@@ -167,6 +189,8 @@ http {{
       proxy_ssl_server_name on;
 {host_header}      proxy_http_version 1.1;
       proxy_set_header Connection "";
+      proxy_connect_timeout 5s;
+      proxy_next_upstream error timeout;
       proxy_read_timeout 300s;
     }}
   }}
@@ -192,6 +216,7 @@ pub fn compose_yaml(project: &str, ports: Ports, rps: u32, report: &Report) -> S
 services:
   graph-node:
     image: {GRAPH_NODE_IMAGE}
+    platform: linux/amd64
     depends_on: {depends}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -215,6 +240,7 @@ services:
       GRAPH_ALLOW_NON_DETERMINISTIC_FULLTEXT_SEARCH: "true"
   ipfs:
     image: {IPFS_IMAGE}
+    command: ["daemon", "--migrate=true", "--offline"]
     ports:
       - "127.0.0.1:{ipfs}:5001"
     volumes:
@@ -289,6 +315,37 @@ mod tests {
         assert!(both.contains(r#"features = ["archive", "traces"]"#));
         // It has to be TOML graph-node would accept, at least as far as parsing goes.
         assert!(both.lines().filter(|l| l.starts_with('[')).count() >= 6);
+    }
+
+    /// Kubo's default is to join the public swarm and announce what it holds. A subgraph under
+    /// test is not published, and "nothing is uploaded anywhere" has to be true.
+    #[test]
+    fn the_ipfs_node_stays_off_the_network() {
+        let c = compose_yaml(
+            "drydock-abc",
+            Ports::default(),
+            DEFAULT_RPS,
+            &report(Some(2000), vec![]),
+        );
+        assert!(c.contains(r#"command: ["daemon", "--migrate=true", "--offline"]"#));
+    }
+
+    #[test]
+    fn why_it_stopped_names_memory_and_emulation() {
+        assert!(why_stopped("running", false, 0, true).is_none());
+        let oom = why_stopped("exited", true, 137, false).unwrap();
+        assert!(oom.contains("ran out of memory"), "{oom}");
+        assert!(!oom.contains("Rosetta"));
+        assert!(
+            why_stopped("exited", true, 137, true)
+                .unwrap()
+                .contains("Rosetta")
+        );
+        assert!(
+            why_stopped("exited", false, 1, false)
+                .unwrap()
+                .contains("drydock logs")
+        );
     }
 
     #[test]
