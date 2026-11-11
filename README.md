@@ -18,7 +18,7 @@ something else.
 
 You need Docker with Compose, and a subgraph that `graph build` has built.
 
-Binaries for macOS and Linux, arm64 and x64, are attached to each
+Binaries for macOS and Linux (glibc 2.35 or newer), arm64 and x64, are attached to each
 [release](https://github.com/nuthatch-org/drydock/releases). Unpack one and put `drydock` on your
 `PATH`. Or build it: `cargo install --path .`
 

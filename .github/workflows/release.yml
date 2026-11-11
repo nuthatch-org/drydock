@@ -14,16 +14,16 @@ jobs:
         include:
           - { target: aarch64-apple-darwin, os: macos-latest }
           - { target: x86_64-apple-darwin, os: macos-latest }
-          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }
-          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm }
+          # The oldest runners on offer, so the binaries ask for no newer a glibc than 2.35.
+          # Static musl builds needed musl-tools from apt, which the runners could not reach.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - if: contains(matrix.target, 'musl')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: The tag is the version in Cargo.toml
         run: test "v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" = "$GITHUB_REF_NAME"
       - run: cargo build --release --locked --target ${{ matrix.target }}
