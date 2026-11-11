@@ -185,6 +185,36 @@ fn reachable_from_container(dir: &Path, url: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
+/// The reason graph-node's container is not running, if it is not.
+fn graph_node_stopped(dir: &Path) -> Option<String> {
+    let out = |cmd: &mut Process| {
+        let o = cmd.stderr(std::process::Stdio::null()).output().ok()?;
+        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let id = out(Process::new("docker")
+        .arg("compose")
+        .arg("-f")
+        .arg(dir.join("docker-compose.yml"))
+        .args(["ps", "-a", "-q", "graph-node"]))?;
+    if id.is_empty() {
+        return None;
+    }
+    let state = out(Process::new("docker").args([
+        "inspect",
+        "-f",
+        "{{.State.Status}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+        &id,
+    ]))?;
+    let mut parts = state.split_whitespace();
+    let (status, oom, code) = (parts.next()?, parts.next()?, parts.next()?);
+    stack::why_stopped(
+        status,
+        oom == "true",
+        code.parse().unwrap_or(0),
+        cfg!(target_arch = "aarch64"),
+    )
+}
+
 fn compose(dir: &Path, args: &[&str]) -> Result<()> {
     let status = Process::new("docker")
         .arg("compose")
@@ -412,8 +442,14 @@ async fn run(cli: Cli) -> Result<ExitCode> {
         }
 
         Command::Status { subgraph } => {
-            let (_, state) = state(&subgraph)?;
-            match Node::new(state.ports()).status(&state.name).await? {
+            let (dir, state) = state(&subgraph)?;
+            let answer = Node::new(state.ports()).status(&state.name).await;
+            if answer.is_err()
+                && let Some(why) = graph_node_stopped(&dir)
+            {
+                bail!(why);
+            }
+            match answer? {
                 Some(s) => {
                     println!("{}", node::describe(&s));
                     Ok(if s.fatal_error.is_some() {
