@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sib::deploy;
 use sib::manifest::{self, Needs};
 use sib::node::{self, Node};
-use sib::preflight::{self, Level, Report};
+use sib::preflight::{self, Level, Report, Window};
 use sib::rpc::{self, HttpRpc};
 use sib::stack::{self, Ports};
 
@@ -86,6 +86,18 @@ struct State {
     admin: u16,
     status: u16,
     ipfs: u16,
+    #[serde(default = "default_ui_port")]
+    ui: u16,
+    /// The `--last` this stack was started with, and the block that came to. Kept so the next
+    /// `up` deploys the same window and resumes, where measuring again would start a new one.
+    #[serde(default)]
+    last: Option<u64>,
+    #[serde(default)]
+    start: Option<u64>,
+}
+
+fn default_ui_port() -> u16 {
+    Ports::default().ui
 }
 
 impl State {
@@ -95,6 +107,7 @@ impl State {
             admin: self.admin,
             status: self.status,
             ipfs: self.ipfs,
+            ui: self.ui,
         }
     }
 }
@@ -129,6 +142,15 @@ fn state(subgraph: &Path) -> Result<(PathBuf, State)> {
     Ok((dir, serde_json::from_str(&text)?))
 }
 
+/// Write a file only if its content differs, and say whether it did.
+fn changed(path: &Path, content: &str) -> Result<bool> {
+    if std::fs::read_to_string(path).is_ok_and(|old| old == content) {
+        return Ok(false);
+    }
+    std::fs::write(path, content)?;
+    Ok(true)
+}
+
 fn compose(dir: &Path, args: &[&str]) -> Result<()> {
     let status = Process::new("docker")
         .arg("compose")
@@ -144,7 +166,10 @@ fn compose(dir: &Path, args: &[&str]) -> Result<()> {
 }
 
 /// The preflight, printed. Returns the report only when the endpoint can carry the subgraph.
-async fn checked(target: &Target) -> Result<Option<(String, String, Needs, Report)>> {
+async fn checked(
+    target: &Target,
+    pinned: Option<(u64, u64)>,
+) -> Result<Option<(String, String, Needs, Report)>> {
     let (network, url) = rpc::parse_spec(&target.rpc).with_context(|| {
         format!(
             "--rpc wants network:url, e.g. base:https://base-rpc.publicnode.com; got {:?}",
@@ -158,7 +183,12 @@ async fn checked(target: &Target) -> Result<Option<(String, String, Needs, Repor
             needs.network
         );
     }
-    let report = preflight::run(&HttpRpc::new(&url), &needs, target.last)
+    let window = match (target.last, pinned) {
+        (Some(n), Some((last, start))) if n == last => Window::From(start),
+        (Some(n), _) => Window::Last(n),
+        (None, _) => Window::Whole,
+    };
+    let report = preflight::run(&HttpRpc::new(&url), &needs, window)
         .await
         .map_err(|e| match e {
             rpc::RpcError::RateLimited(m) => anyhow!("the endpoint is rate-limiting this machine right now (\"{m}\"). Wait a minute and try again"),
@@ -189,7 +219,7 @@ async fn checked(target: &Target) -> Result<Option<(String, String, Needs, Repor
 
 async fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
-        Command::Preflight { target } => Ok(match checked(&target).await? {
+        Command::Preflight { target } => Ok(match checked(&target, None).await? {
             Some(_) => {
                 println!("This endpoint can carry it.");
                 ExitCode::SUCCESS
@@ -202,7 +232,9 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             port_offset,
             rps,
         } => {
-            let Some((network, url, needs, report)) = checked(&target).await? else {
+            let previous = state(&target.subgraph).ok().map(|(_, s)| s);
+            let pinned = previous.as_ref().and_then(|s| Some((s.last?, s.start?)));
+            let Some((network, url, needs, report)) = checked(&target, pinned).await? else {
                 return Ok(ExitCode::from(1));
             };
             let root = subgraph_dir(&target.subgraph).canonicalize()?;
@@ -227,6 +259,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 admin: d.admin + port_offset,
                 status: d.status + port_offset,
                 ipfs: d.ipfs + port_offset,
+                ui: d.ui + port_offset,
             };
             let state = State {
                 name: format!("local/{slug}"),
@@ -235,6 +268,9 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 admin: ports.admin,
                 status: ports.status,
                 ipfs: ports.ipfs,
+                ui: ports.ui,
+                last: target.last,
+                start: (report.start > needs.start_block).then_some(report.start),
             };
             std::fs::write(
                 dir.join("config.toml"),
@@ -249,9 +285,34 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 serde_json::to_string_pretty(&state)?,
             )?;
             std::fs::write(dir.join(".gitignore"), "*\n")?;
+            std::fs::create_dir_all(dir.join("ui"))?;
+            // Docker does not restart a container when a file mounted into it changes.
+            let mut stale = Vec::new();
+            if changed(&dir.join("ui.conf"), stack::ui_conf())? {
+                stale.push("ui");
+            }
+            std::fs::write(dir.join("ui").join("index.html"), stack::UI_HTML)?;
+            let page_data = |hash: &str| {
+                let findings: Vec<_> = report
+                    .findings
+                    .iter()
+                    .map(|f| {
+                        let level = match f.level {
+                            Level::Blocker => "blocker",
+                            Level::Warn => "warn",
+                            Level::Ok => "ok",
+                        };
+                        serde_json::json!({ "level": level, "text": f.text })
+                    })
+                    .collect();
+                serde_json::json!({ "name": state.name, "network": network, "hash": hash, "queryPort": ports.query, "rps": rps, "findings": findings }).to_string()
+            };
+            std::fs::write(dir.join("ui").join("sib.json"), page_data(""))?;
 
             if rps > 0 {
-                std::fs::write(dir.join("nginx.conf"), stack::governor_conf(&url, rps)?)?;
+                if changed(&dir.join("nginx.conf"), &stack::governor_conf(&url, rps)?)? {
+                    stale.push("rpc");
+                }
                 println!(
                     "Starting graph-node, Postgres and IPFS, holding requests to the endpoint at {rps} a second (--rps)…"
                 );
@@ -261,6 +322,11 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 );
             }
             compose(&dir, &["up", "-d", "--quiet-pull"])?;
+            if previous.is_some() && !stale.is_empty() {
+                let mut args = vec!["restart"];
+                args.extend(stale.iter());
+                compose(&dir, &args)?;
+            }
             let node = Node::new(ports);
             node.wait_ready(Duration::from_secs(180)).await?;
 
@@ -288,8 +354,10 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             })?;
             let hash = node.ipfs_add("subgraph.yaml", linked.into_bytes()).await?;
             node.deploy(&state.name, &hash).await?;
+            std::fs::write(dir.join("ui").join("sib.json"), page_data(&hash))?;
 
             println!("\nDeployed {hash} as {}.", state.name);
+            println!("  Open:   http://localhost:{}", ports.ui);
             println!(
                 "  Query:  http://localhost:{}/subgraphs/name/{}",
                 ports.query, state.name

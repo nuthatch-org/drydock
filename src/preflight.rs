@@ -48,6 +48,18 @@ pub struct Report {
     pub features: Vec<&'static str>,
 }
 
+/// Which blocks to sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Window {
+    /// From the manifest's own start block.
+    Whole,
+    /// This many blocks back from the head, as asked for with `--last`.
+    Last(u64),
+    /// From this block: a `--last` window as it was first measured. The head moves, so asking
+    /// for "the last N" twice gives two start blocks, two deployments and a re-index.
+    From(u64),
+}
+
 impl Report {
     pub fn blocked(&self) -> bool {
         self.findings.iter().any(|f| f.level == Level::Blocker)
@@ -81,14 +93,14 @@ fn logs_filter(address: Option<&str>, from: u64, to: u64) -> Value {
     json!([f])
 }
 
-pub async fn run(rpc: &impl Rpc, needs: &Needs, last: Option<u64>) -> Result<Report, RpcError> {
-    run_with_pause(rpc, needs, last, Duration::from_secs(3)).await
+pub async fn run(rpc: &impl Rpc, needs: &Needs, window: Window) -> Result<Report, RpcError> {
+    run_with_pause(rpc, needs, window, Duration::from_secs(3)).await
 }
 
 pub async fn run_with_pause(
     rpc: &impl Rpc,
     needs: &Needs,
-    last: Option<u64>,
+    window: Window,
     pause: Duration,
 ) -> Result<Report, RpcError> {
     let mut limited = None;
@@ -106,10 +118,12 @@ pub async fn run_with_pause(
         .ok_or_else(|| {
             RpcError::Transport("eth_blockNumber did not answer with a block number".into())
         })?;
-    let start = match last {
-        Some(n) => head.saturating_sub(n).max(needs.start_block),
-        None => needs.start_block,
+    let start = match window {
+        Window::Last(n) => head.saturating_sub(n).max(needs.start_block),
+        Window::From(block) => block.max(needs.start_block),
+        Window::Whole => needs.start_block,
     };
+    let windowed = window != Window::Whole;
     let to_sync = head.saturating_sub(start);
     let tip = head.saturating_sub(HEAD_MARGIN);
     let address = needs.sample_address.as_deref();
@@ -286,10 +300,10 @@ pub async fn run_with_pause(
         }
         None => {}
     }
-    if needs.templates && last.is_some() {
+    if needs.templates && windowed {
         note!(Level::Warn, "Window: this subgraph creates data sources at runtime. Ones created before the window will never be found, so entities that depend on them will be missing.".into());
     }
-    if last.is_some() && start > needs.start_block {
+    if windowed && start > needs.start_block {
         note!(
             Level::Warn,
             format!(
@@ -403,7 +417,43 @@ mod tests {
     }
 
     async fn check(e: Endpoint, n: Needs, last: Option<u64>) -> Report {
-        run_with_pause(&e, &n, last, Duration::ZERO).await.unwrap()
+        let window = last.map_or(Window::Whole, Window::Last);
+        run_with_pause(&e, &n, window, Duration::ZERO)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_pinned_window_starts_where_it_first_did_however_far_the_head_has_moved() {
+        let old = Needs {
+            start_block: 1_000_000,
+            ..needs()
+        };
+        let first = check(Endpoint::generous(), old.clone(), Some(200_000)).await;
+        let pinned = run_with_pause(
+            &Endpoint::generous(),
+            &old,
+            Window::From(first.start - 5_000),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(pinned.start, first.start - 5_000, "not head minus anything");
+        assert!(says(
+            &pinned,
+            Level::Warn,
+            "where the manifest says 1000000"
+        ));
+        // A pin older than the manifest's own start is not a window at all.
+        let whole = run_with_pause(
+            &Endpoint::generous(),
+            &needs(),
+            Window::From(5),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert_eq!(whole.start, needs().start_block);
     }
 
     fn says(r: &Report, level: Level, needle: &str) -> bool {

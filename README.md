@@ -5,16 +5,17 @@ subgraph, with a local page showing sync progress, indexing errors, mapping logs
 playground. For testing a subgraph before publishing it, now that Subgraph Studio's test indexer
 is going chain by chain.
 
-**Status: early.** The command line works end to end on Linux with Docker: `sib up` checks your
-RPC endpoint, starts a local graph-node and deploys your built subgraph to it. There is no web
-page yet. The plan is in [docs/plan.md](docs/plan.md); what has been measured so far is in
-[docs/spike.md](docs/spike.md).
+**Status: early, and working end to end on Linux with Docker.** `sib up` checks your RPC
+endpoint, starts a local graph-node, deploys your built subgraph to it and serves a page that
+shows the sync, any indexing error, your mapping logs and a query box. The plan is in
+[docs/plan.md](docs/plan.md); what has been measured so far is in [docs/spike.md](docs/spike.md).
 
 ## Use
 
 ```sh
 graph build
 sib up --rpc base:https://base-rpc.publicnode.com
+open http://localhost:8787
 sib status      # syncing: block 56056683 of 56068731, 11% (12048 to go)
 sib logs        # graph-node's own output
 sib down        # stops it and keeps the database, so the next `up` resumes
@@ -31,9 +32,13 @@ sib down        # stops it and keeps the database, so the next `up` resumes
   sync, mapping logs are kept, the database survives a restart, and every port listens on
   127.0.0.1 only.
 
+The page is one file with no requests to anywhere but itself, so it works offline. It says so
+when graph-node stops answering, and it says so when your endpoint is rate-limiting, which
+graph-node itself reports nowhere but its debug log.
+
 `--last 200000` starts that many blocks back from the head, for a subgraph whose own start block
-is older than the endpoint's history. `--port-offset 1000` moves the ports if 8000, 8020, 8030
-and 5001 are taken. Nothing is uploaded anywhere: the IPFS node is local too.
+is older than the endpoint's history. The window is fixed the first time, so later `sib up`s
+resume it. `--port-offset 1000` moves the ports if 8000, 8020, 8030, 5001 and 8787 are taken. Nothing is uploaded anywhere: the IPFS node is local too.
 
 ## `sib preflight`
 

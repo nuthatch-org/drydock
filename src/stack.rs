@@ -23,6 +23,8 @@ pub struct Ports {
     pub admin: u16,
     pub status: u16,
     pub ipfs: u16,
+    /// The page.
+    pub ui: u16,
 }
 
 impl Default for Ports {
@@ -32,6 +34,7 @@ impl Default for Ports {
             admin: 8020,
             status: 8030,
             ipfs: 5001,
+            ui: 8787,
         }
     }
 }
@@ -72,6 +75,35 @@ directory = "/data/logs"
 retention_hours = 24
 "#
     )
+}
+
+/// The page, compiled into the binary. One file, no requests to anywhere but its own origin.
+pub const UI_HTML: &str = include_str!("../ui/index.html");
+
+/// Serves the page and puts graph-node's query and status ports under the same origin, so the
+/// page needs no CORS and no knowledge of where the node is. A hosted sib can keep the page as
+/// it is and change only this.
+pub fn ui_conf() -> &'static str {
+    r#"events {}
+http {
+  include /etc/nginx/mime.types;
+  server {
+    listen 8787;
+    root /ui;
+    index index.html;
+    add_header Cache-Control "no-store";
+    proxy_connect_timeout 3s;
+    location /query/ {
+      proxy_pass http://graph-node:8000/;
+      proxy_read_timeout 120s;
+    }
+    location /status/ {
+      proxy_pass http://graph-node:8030/;
+      proxy_read_timeout 10s;
+    }
+  }
+}
+"#
 }
 
 /// The brake graph-node does not have. Left alone on a shared endpoint it bursts, spends the
@@ -158,6 +190,14 @@ services:
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
     volumes:
       - postgres:/var/lib/postgresql/data
+  ui:
+    image: {GOVERNOR_IMAGE}
+    depends_on: [graph-node]
+    ports:
+      - "127.0.0.1:{ui}:8787"
+    volumes:
+      - ./ui.conf:/etc/nginx/nginx.conf:ro
+      - ./ui:/ui:ro
 {governor}volumes:
   logs:
   ipfs:
@@ -167,6 +207,7 @@ services:
         admin = ports.admin,
         status = ports.status,
         ipfs = ports.ipfs,
+        ui = ports.ui,
     )
 }
 
@@ -221,7 +262,7 @@ mod tests {
             .lines()
             .filter(|l| l.trim_start().starts_with("- \"") && l.contains(':'))
             .collect();
-        assert_eq!(published.len(), 4);
+        assert_eq!(published.len(), 5);
         assert!(
             published.iter().all(|l| l.contains("\"127.0.0.1:")),
             "graph-node's admin port has no authentication"
@@ -237,6 +278,7 @@ mod tests {
                 admin: 28020,
                 status: 28030,
                 ipfs: 25001,
+                ui: 28787,
             },
             0,
             &report(Some(100), vec![]),
@@ -296,7 +338,7 @@ mod tests {
             "the governor is not published; only graph-node talks to it"
         );
         let direct = compose_yaml("p", Ports::default(), 0, &r);
-        assert!(!direct.contains("nginx") && direct.contains("depends_on: [ipfs, postgres]"));
+        assert!(!direct.contains("  rpc:\n") && direct.contains("depends_on: [ipfs, postgres]"));
     }
 
     #[test]
@@ -313,5 +355,45 @@ mod tests {
             "or a TLS endpoint behind a CDN refuses the handshake"
         );
         assert!(governor_conf("not a url", 15).is_err());
+    }
+
+    #[test]
+    fn the_page_is_served_beside_the_node_it_reads() {
+        let c = compose_yaml("p", Ports::default(), 0, &report(Some(2000), vec![]));
+        assert!(c.contains("127.0.0.1:8787:8787") && c.contains("- ./ui:/ui:ro"));
+        let conf = ui_conf();
+        assert!(
+            conf.contains("location /query/")
+                && conf.contains("proxy_pass http://graph-node:8000/;")
+        );
+        assert!(
+            conf.contains("location /status/")
+                && conf.contains("proxy_pass http://graph-node:8030/;")
+        );
+    }
+
+    #[test]
+    fn the_page_asks_nothing_of_any_other_origin() {
+        // It has to work on a train, and a hosted sib must be able to serve it unchanged.
+        for needle in ["https://", "http://"] {
+            let outside: Vec<&str> = UI_HTML
+                .match_indices(needle)
+                .map(|(i, _)| &UI_HTML[i..(i + 60).min(UI_HTML.len())])
+                .filter(|s| {
+                    !s.starts_with("https://www.lodestar-dashboard.com/move")
+                        && !s.starts_with("http://localhost:'")
+                })
+                .collect();
+            assert!(
+                outside.is_empty(),
+                "the page reaches outside its origin: {outside:?}"
+            );
+        }
+        assert!(
+            UI_HTML.contains("fetch('sib.json'")
+                && UI_HTML.contains("'status/graphql'")
+                && UI_HTML.contains("'query/subgraphs/name/'")
+        );
+        assert!(!UI_HTML.contains('\u{2014}'), "no em dashes");
     }
 }

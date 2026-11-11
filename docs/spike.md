@@ -115,3 +115,26 @@ That is a count over one minute on a loaded machine, not a benchmark.
 
 The generated `nginx.conf` holds the RPC URL, and so the key. It sits in `.sib/`, which sib
 writes a `.gitignore` for.
+
+## Fourth run: the page
+
+Served by a container in the stack on port 8787, which also puts graph-node's query and status
+ports under the same origin. Driven with a headless browser through an SSH tunnel.
+
+| State | What the page did |
+|---|---|
+| Syncing, with a mapping that logs | Figures every 3 seconds, speed and time left from its own samples, the mapping's `log.info` lines, a query answered in 52 ms. No page errors, and no request to any other origin |
+| A mapping that fails | State `failed`, the message with file and line, the deterministic verdict. A query is refused with `indexing_error` and the page says how to read past it |
+| graph-node stopped | Said so after 13 seconds, with every figure reading "Unavailable". Recovered by itself when it came back |
+| Free endpoint, `--rps 0` | "Your RPC endpoint refused 4 requests for rate in the last 90 seconds. The sync is not stuck; it is waiting." |
+| 390 pixels wide | No horizontal scroll, after a fix |
+
+Three faults were found by running it, none by reading it:
+
+- **A stopped node left stale figures on screen.** The proxy waited a minute for a dead upstream
+  and the page's fetches had no timeout. Both have one now.
+- **`--last` broke resuming.** The window was measured from the current head, so every `sib up`
+  gave a different start block, a different deployment and a re-index. The window is now fixed in
+  `.sib/state.json` the first time: three runs in a row gave the same hash.
+- **A changed config did not reach a running container.** Docker does not restart one when a
+  mounted file changes. sib restarts the proxies whose config it rewrote.
