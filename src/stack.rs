@@ -129,6 +129,48 @@ retention_hours = 24
     )
 }
 
+/// A file `up` writes beside the compose file and copies into a container.
+pub struct Copied {
+    pub file: &'static str,
+    pub service: &'static str,
+    pub dest: &'static str,
+    /// Read once at start, so the service is restarted when it changes.
+    pub restart: bool,
+}
+
+pub const COPIED: [Copied; 5] = [
+    Copied {
+        file: "config.toml",
+        service: "graph-node",
+        dest: "/config.toml",
+        restart: true,
+    },
+    Copied {
+        file: "nginx.conf",
+        service: "rpc",
+        dest: "/etc/nginx/nginx.conf",
+        restart: true,
+    },
+    Copied {
+        file: "ui.conf",
+        service: "ui",
+        dest: "/etc/nginx/nginx.conf",
+        restart: true,
+    },
+    Copied {
+        file: "index.html",
+        service: "ui",
+        dest: "/usr/share/nginx/html/index.html",
+        restart: false,
+    },
+    Copied {
+        file: "drydock.json",
+        service: "ui",
+        dest: "/usr/share/nginx/html/drydock.json",
+        restart: false,
+    },
+];
+
 /// The page, compiled into the binary. One file, no requests to anywhere but its own origin.
 pub const UI_HTML: &str = include_str!("../ui/index.html");
 
@@ -141,7 +183,7 @@ http {
   include /etc/nginx/mime.types;
   server {
     listen 8787;
-    root /ui;
+    root /usr/share/nginx/html;
     index index.html;
     add_header Cache-Control "no-store";
     proxy_connect_timeout 3s;
@@ -226,7 +268,7 @@ pub fn compose_yaml_with(
         (
             "[ipfs, postgres, rpc]",
             format!(
-                "  rpc:\n    image: {GOVERNOR_IMAGE}\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n    volumes:\n      - ./nginx.conf:/etc/nginx/nginx.conf:ro\n"
+                "  rpc:\n    image: {GOVERNOR_IMAGE}\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n"
             ),
         )
     } else {
@@ -245,7 +287,6 @@ services:
       - "127.0.0.1:{admin}:8020"
       - "127.0.0.1:{status}:8030"
     volumes:
-      - ./config.toml:/config.toml:ro
       - logs:/data/logs
     environment:
       GRAPH_NODE_CONFIG: /config.toml
@@ -282,9 +323,6 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:{ui}:8787"
-    volumes:
-      - ./ui.conf:/etc/nginx/nginx.conf:ro
-      - ./ui:/ui:ro
 {governor}volumes:
   logs:
   ipfs:
@@ -361,6 +399,16 @@ mod tests {
         let own = compose_yaml_with("p", Ports::default(), 15, &r, Some("me/graph-node:arm64"));
         assert!(own.contains("  graph-node:\n    image: me/graph-node:arm64\n    depends_on"));
         assert!(!own.contains("platform:"));
+    }
+
+    /// A file mounted from the host only exists in the container if the Docker VM shares that
+    /// folder. colima shares the home directory and nothing else, and a subgraph kept anywhere
+    /// else failed to start on 2026-11-11. The files are copied in instead.
+    #[test]
+    fn nothing_is_mounted_from_the_host() {
+        let c = compose_yaml("p", Ports::default(), 15, &report(Some(2000), vec![]));
+        assert!(!c.contains("./"), "{c}");
+        assert_eq!(COPIED.iter().filter(|f| f.service == "ui").count(), 3);
     }
 
     #[test]
@@ -504,7 +552,7 @@ mod tests {
     #[test]
     fn the_page_is_served_beside_the_node_it_reads() {
         let c = compose_yaml("p", Ports::default(), 0, &report(Some(2000), vec![]));
-        assert!(c.contains("127.0.0.1:8787:8787") && c.contains("- ./ui:/ui:ro"));
+        assert!(c.contains("127.0.0.1:8787:8787"));
         let conf = ui_conf();
         assert!(
             conf.contains("location /query/")
