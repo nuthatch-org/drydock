@@ -161,8 +161,48 @@ Estimates are working days and are mine, not measured.
 | 2. Page | The six panels above, served by the CLI | 3 | Usable in Safari, Firefox, Chrome and Brave with no prompts |
 | 3. Launch | `sib publish` handoff to `/move`; a page on Lodestar; the agent skill gains `sib`; a blog post and a video | 2 | Announced |
 | 4. ephemeris engine | Open the repo, release binaries, build-from-disk, `--engine ephemeris` | open | A subgraph that passes on graph-node passes on it, by `ephemeris-node diff` |
+| 5. Hosted | The same page with the node on our side, behind the Dock's deploy keys | open | See "Later: a hosted sib" |
 
 Phases 0 to 3 are about ten days.
+
+## Later: a hosted sib
+
+Chief, 2026-11-11: self-hosted comes first, and there should be a hosted version afterwards for
+people who do not want to run anything. Written down now so the self-hosted design does not
+close it off. None of this is scheduled.
+
+**What it is.** The same page and the same checks, with the graph-node on our machine. A
+developer runs `graph deploy` against a Lodestar URL with a deploy key and gets a private
+endpoint, a sync bar, errors and logs. This is what Studio's test indexer was.
+
+**Most of the front half exists.** Lodestar's Dock already issues deploy keys and has a
+`/api/studio/node` endpoint that speaks `graph deploy`'s dialect. Today it authenticates the CLI
+and records the build, and there is no graph-node behind it. Hosted sib is, roughly, putting one
+there.
+
+**What it costs, which is why it was not built in November.** Three things, in order:
+
+1. **RPC.** On a hosted node we pay for every block a stranger's subgraph reads. This is the
+   whole of the economics. It needs a hard ceiling per deployment: a window (`--last N` is the
+   same idea, enforced), a request budget, and a lifetime of days.
+2. **Isolation.** graph-node is multi-tenant by design, one node and many deployments, which is
+   how Studio ran. One tenant's runaway mapping still competes for the same Postgres.
+3. **Abuse.** A free indexer of arbitrary code against a paid RPC is a target. It wants an
+   account, and probably the paid tier.
+
+**What the self-hosted work must keep true so this stays cheap to add:**
+
+- The page reads only graph-node's own HTTP surfaces and sib's small server. It must not assume
+  the node is on localhost; the base URL is configuration.
+- The preflight and the governor are per endpoint, not per machine. A hosted node needs the
+  governor more than a laptop does.
+- The engine stays behind an interface. **ephemeris-node is what makes hosting affordable**: no
+  Postgres per tenant, a few hundred megabytes at rest, state in one file. A hosted sib on stock
+  graph-node is possible; on ephemeris-node it is the kind of thing a single box can do for many
+  people.
+
+**Open, for when it is scheduled:** free or paid, how long a deployment lives, which chains, and
+whether it sits on the Helsinki boxes or somewhere new.
 
 ## What it will not do
 
