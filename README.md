@@ -10,9 +10,9 @@ is going chain by chain.
 it and serves a page that shows the sync, any indexing error, your mapping logs and a query box.
 When it looks right, publish it from [lodestar-dashboard.com/move](https://www.lodestar-dashboard.com/move).
 
-**Status: 0.1.0, early.** It works end to end on Linux with Docker, which is where every run so
-far has been. See [what has not been tried](#what-has-not-been-tried) before trusting it with
-something else.
+**Status: 0.2.0, early.** It works end to end on an Apple Silicon Mac. Linux was last run at 0.1.0,
+before the files were copied into the containers. See
+[what has not been tried](#what-has-not-been-tried) before trusting it with something else.
 
 **[The guide](docs/guide.md)** walks through a first run, what the page shows, and what each
 failure means.
@@ -87,11 +87,7 @@ when you ask.
 
 ## What has not been tried
 
-- **Apple Silicon with the published graph-node image.** graph-node ships for x86-64 only. Under
-  QEMU emulation (colima's default) it is killed for memory within a minute of syncing, and
-  `drydock status` says so. A graph-node v0.45.0 built for arm64 from source synced here without
-  trouble at 75 MB: build one and name it in `DRYDOCK_GRAPH_NODE_IMAGE`. Docker Desktop with
-  Rosetta has not been tried.
+- **Docker Desktop.** Every run so far was on colima or plain Docker on Linux.
 - **Windows.** Nobody has run it.
 - **Call handlers, synced.** `preflight` refuses an endpoint without `trace_filter` for a subgraph
   that has them, which is every free endpoint tried. No subgraph with call handlers has been
@@ -103,7 +99,10 @@ run found that publicnode allows ten contract addresses in one log query, where 
 up to 2,000 and retries a refusal for ever while reporting itself healthy. `preflight` now measures
 that limit and `up` passes it to graph-node.
 
-It runs graph-node v0.45.0, Postgres 16 and Kubo v0.38.1, pinned. The plan is in
+It runs graph-node v0.45.0, Postgres 16 and Kubo v0.38.1, pinned. graph-node is published upstream
+for x86-64 only, and emulated on an Apple Silicon Mac it was killed for memory within a minute of
+syncing, so Drydock uses [its own build](.github/workflows/graph-node-image.yml) of the same
+source, unmodified, for x86-64 and arm64. `DRYDOCK_GRAPH_NODE_IMAGE` names another. The plan is in
 [docs/plan.md](docs/plan.md) and what has been measured is in [docs/spike.md](docs/spike.md).
 
 Part of [Lodestar](https://www.lodestar-dashboard.com) and of [Nuthatch](https://github.com/nuthatch-org).

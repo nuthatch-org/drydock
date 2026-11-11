@@ -5,7 +5,10 @@
 
 use crate::preflight::Report;
 
-pub const GRAPH_NODE_IMAGE: &str = "graphprotocol/graph-node:v0.45.0";
+/// graph-node v0.45.0 built unmodified from its own source for x86-64 and arm64, by this
+/// repository's `graph-node image` workflow. Upstream publishes x86-64 only, and emulated on an
+/// Apple Silicon Mac it was killed for memory within a minute of syncing.
+pub const GRAPH_NODE_IMAGE: &str = "ghcr.io/nuthatch-org/graph-node:v0.45.0";
 pub const POSTGRES_IMAGE: &str = "postgres:16";
 pub const IPFS_IMAGE: &str = "ipfs/kubo:v0.38.1";
 pub const GOVERNOR_IMAGE: &str = "nginx:1.29-alpine";
@@ -78,7 +81,7 @@ pub fn why_stopped(state: &str, oom_killed: bool, exit_code: i64, arm: bool) -> 
     Some(if oom_killed {
         let mut s = String::from("graph-node ran out of memory and was killed.");
         if arm {
-            s.push_str(" graph-node is built for x86-64 only and is being emulated on this machine. With Docker Desktop, turn on Rosetta under Settings > General; QEMU emulation, which colima uses by default, does not survive a sync.");
+            s.push_str(" If DRYDOCK_GRAPH_NODE_IMAGE names an x86-64 image, it is being emulated on this machine, and under QEMU graph-node does not survive a sync; unset it to use the arm64 build. Otherwise give Docker more memory.");
         } else {
             s.push_str(" Give Docker more memory, then `drydock up` again.");
         }
@@ -245,9 +248,7 @@ pub fn compose_yaml(project: &str, ports: Ports, rps: u32, report: &Report) -> S
     compose_yaml_with(project, ports, rps, report, None)
 }
 
-/// As [`compose_yaml`], with graph-node from another image: `DRYDOCK_GRAPH_NODE_IMAGE`. The
-/// published image is x86-64 only, so it is pinned to that platform; one named by hand is
-/// taken to be built for the machine it is on.
+/// As [`compose_yaml`], with graph-node from another image: `DRYDOCK_GRAPH_NODE_IMAGE`.
 pub fn compose_yaml_with(
     project: &str,
     ports: Ports,
@@ -259,10 +260,7 @@ pub fn compose_yaml_with(
         .max_log_addresses
         .map(|n| format!("\n      GRAPH_ETH_GET_LOGS_MAX_CONTRACTS: \"{n}\""))
         .unwrap_or_default();
-    let graph_node = match graph_node_image {
-        Some(image) => format!("image: {image}"),
-        None => format!("image: {GRAPH_NODE_IMAGE}\n    platform: linux/amd64"),
-    };
+    let graph_node = format!("image: {}", graph_node_image.unwrap_or(GRAPH_NODE_IMAGE));
     let range = report.max_block_range.unwrap_or(10);
     let (depends, governor) = if rps > 0 {
         (
@@ -390,20 +388,20 @@ mod tests {
     }
 
     #[test]
-    fn another_graph_node_image_is_not_pinned_to_x86() {
+    fn graph_node_runs_native_on_either_architecture() {
         let r = report(Some(2000), vec![]);
         let stock = compose_yaml("p", Ports::default(), 15, &r);
-        assert!(stock.contains(&format!(
-            "  graph-node:\n    image: {GRAPH_NODE_IMAGE}\n    platform: linux/amd64\n    depends_on"
-        )));
-        let own = compose_yaml_with("p", Ports::default(), 15, &r, Some("me/graph-node:arm64"));
-        assert!(own.contains("  graph-node:\n    image: me/graph-node:arm64\n    depends_on"));
-        assert!(!own.contains("platform:"));
+        assert!(stock.contains(
+            "  graph-node:\n    image: ghcr.io/nuthatch-org/graph-node:v0.45.0\n    depends_on"
+        ));
+        assert!(
+            !stock.contains("platform:"),
+            "a pinned platform is an emulated graph-node"
+        );
+        let own = compose_yaml_with("p", Ports::default(), 15, &r, Some("me/graph-node:dev"));
+        assert!(own.contains("  graph-node:\n    image: me/graph-node:dev\n    depends_on"));
     }
 
-    /// A file mounted from the host only exists in the container if the Docker VM shares that
-    /// folder. colima shares the home directory and nothing else, and a subgraph kept anywhere
-    /// else failed to start on 2026-11-11. The files are copied in instead.
     #[test]
     fn nothing_is_mounted_from_the_host() {
         let c = compose_yaml("p", Ports::default(), 15, &report(Some(2000), vec![]));
@@ -427,11 +425,11 @@ mod tests {
         assert!(why_stopped("running", false, 0, true).is_none());
         let oom = why_stopped("exited", true, 137, false).unwrap();
         assert!(oom.contains("ran out of memory"), "{oom}");
-        assert!(!oom.contains("Rosetta"));
+        assert!(!oom.contains("emulated"));
         assert!(
             why_stopped("exited", true, 137, true)
                 .unwrap()
-                .contains("Rosetta")
+                .contains("emulated")
         );
         assert!(
             why_stopped("exited", false, 1, false)
