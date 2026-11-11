@@ -1,0 +1,23 @@
+[store]
+[store.primary]
+connection = "postgresql://graph:graph@postgres:5432/graph"
+pool_size = 10
+
+[deployment]
+[[deployment.rule]]
+store = "primary"
+indexers = ["default"]
+
+[chains]
+ingestor = "default"
+
+[chains.base]
+shard = "primary"
+provider = [
+  { label = "base", url = "https://base-rpc.publicnode.com", features = [] }
+]
+
+[log_store]
+backend = "file"
+directory = "/data/logs"
+retention_hours = 72

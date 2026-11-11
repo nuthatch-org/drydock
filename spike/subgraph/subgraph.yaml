@@ -1,0 +1,25 @@
+specVersion: 1.2.0
+description: sib spike. USDC transfers on Base, with a log line per handler call.
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: USDC
+    network: base
+    source:
+      address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      abi: ERC20
+      startBlock: 56055187
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Counter
+      abis:
+        - name: ERC20
+          file: ./abis/ERC20.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handleTransfer
+      file: ./src/mapping.ts

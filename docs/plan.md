@@ -119,8 +119,9 @@ From ephemeris-node's notes and graph-node's source:
   first bad block while unsynced. Measured on 2026-09-10: 1 block processed against 4,620.
 - `ETHEREUM_REORG_THRESHOLD=20`, `ETHEREUM_POLLING_INTERVAL=30000` on shared endpoints. The
   defaults burn about 8 requests a second on Arbitrum and get rate-limited within minutes.
-- `GRAPH_STORE_WRITE_BATCH_DURATION=0`, so the page does not lag the node by up to five minutes
-  while syncing. *Inferred from source, to be confirmed in the spike.*
+- `GRAPH_STORE_WRITE_BATCH_DURATION=0`. With the default, the status API reported the start block
+  and zero entities two and a half minutes into a healthy sync. Measured in the spike
+  ([spike.md](spike.md)).
 - Publish every port on `127.0.0.1` only. graph-node binds `0.0.0.0` and its admin port has no
   authentication.
 - Pin every image. The official compose pins none.
@@ -155,7 +156,7 @@ Estimates are working days and are mine, not measured.
 
 | Phase | What | Days | Done when |
 |---|---|---|---|
-| 0. Spike | Compose with a generated config on one real Base subgraph. Confirm `_logs` with the file store, the write-batch setting, CORS from a localhost page, and time a sync | 1 | A subgraph syncs, its logs come back over HTTP, and the numbers are written down |
+| 0. Spike | Compose with a generated config on one real Base subgraph. Confirm `_logs` with the file store, the write-batch setting and CORS from a localhost page | **done 2026-11-11** | See [spike.md](spike.md). No timings: the machine was busy |
 | 1. CLI | `up`, `down`, `status`, `logs`; preflight; compose and config generation; build and deploy to the local node; `--last N`; `--watch`; release binaries | 4 | `sib up` works on a clean machine with Docker, on Base and Arbitrum |
 | 2. Page | The six panels above, served by the CLI | 3 | Usable in Safari, Firefox, Chrome and Brave with no prompts |
 | 3. Launch | `sib publish` handoff to `/move`; a page on Lodestar; the agent skill gains `sib`; a blog post and a video | 2 | Announced |

@@ -1,0 +1,5 @@
+type Counter @entity(immutable: false) {
+  id: ID!
+  transfers: BigInt!
+  lastBlock: BigInt!
+}

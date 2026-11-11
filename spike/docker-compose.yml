@@ -1,0 +1,37 @@
+name: sib-spike
+services:
+  graph-node:
+    image: graphprotocol/graph-node:v0.45.0
+    cpus: 2
+    depends_on: [ipfs, postgres]
+    ports:
+      - "127.0.0.1:28000:8000"
+      - "127.0.0.1:28020:8020"
+      - "127.0.0.1:28030:8030"
+    volumes:
+      - ./config.toml:/config.toml:ro
+      - ./logs:/data/logs
+    environment:
+      GRAPH_NODE_CONFIG: /config.toml
+      ipfs: "ipfs:5001"
+      node_id: default
+      GRAPH_LOG: info
+      GRAPH_DISABLE_FAIL_FAST: "true"
+      ETHEREUM_REORG_THRESHOLD: "20"
+      ETHEREUM_POLLING_INTERVAL: "5000"
+      GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE: "2000"
+      GRAPH_STORE_WRITE_BATCH_DURATION: "0"
+  ipfs:
+    image: ipfs/kubo:v0.38.1
+    cpus: 1
+    ports:
+      - "127.0.0.1:25001:5001"
+  postgres:
+    image: postgres:16
+    cpus: 2
+    command: ["postgres", "-cshared_preload_libraries=pg_stat_statements", "-cmax_connections=100"]
+    environment:
+      POSTGRES_USER: graph
+      POSTGRES_PASSWORD: graph
+      POSTGRES_DB: graph
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
