@@ -59,3 +59,39 @@ default to INFO and above.
 - A factory or template subgraph.
 - Any chain but Base, any endpoint but publicnode.
 - Docker Desktop on macOS, which is where most developers will run it.
+
+## Second run: `sib up`, and the brake
+
+The same day, the same machine, the same subgraph, this time through `sib up` (commit on
+`pete/preflight`). `sib up` checked the endpoint, wrote the stack, uploaded and linked the build
+to the local IPFS itself, and deployed it. Stopping with `sib down` and starting again resumed at
+the block it had reached, on the same deployment hash.
+
+**Stock graph-node cannot hold itself under a rate limit, and stalls for it.** With requests going
+straight to publicnode it applied no block for ninety seconds at a time. Its retries had backed
+off to a tenth attempt, the chain-head poll was being refused too, and the chain moved ahead of
+the sync.
+
+**A governor in front of the endpoint fixes it.** An nginx container in the stack queues
+graph-node's requests and lets them out at a fixed rate (`--rps`, default 15):
+
+| | Without | With, at 15 a second |
+|---|---|---|
+| Requests reaching the endpoint | about 37 a second in bursts | 13 to 15 a second, steady |
+| Rate-limit refusals in graph-node's log | hundreds | 0 |
+| Blocks applied over a 90-second window | 0 during a stall | about 150 every 15 seconds, every sample |
+
+These are counts, not timings; the machine was still busy.
+
+The first version of the governor did nothing at all, and looked as if it worked. Its limit was
+keyed on `$server_name`, which is empty in this configuration, and nginx does not count a request
+with an empty key. 37 requests a second went through a "15 a second" limit. It is keyed on
+`$server_port` now, and there is a test that says why.
+
+Also found: an endpoint that has just been hammered will rate-limit the preflight's first call.
+`sib` now says that in words. And the governor returned six 403s from publicnode that never
+appeared in graph-node's log and did not affect the sync; unexplained.
+
+A contract with a transfer in every block is the worst case for this, since graph-node fetches
+every block. At 15 requests a second it synced about ten blocks a second on a chain producing
+about five, so it gains slowly. A quieter subgraph needs far fewer requests.
