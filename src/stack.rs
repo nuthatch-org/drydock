@@ -1,4 +1,4 @@
-//! The graph-node stack sib runs, as two files: a compose file and graph-node's own config.
+//! The graph-node stack Drydock runs, as two files: a compose file and graph-node's own config.
 //!
 //! Every setting here is one that a default graph-node gets wrong for a developer on a shared
 //! endpoint, and each was either measured in `docs/spike.md` or read out of graph-node's source.
@@ -10,7 +10,7 @@ pub const POSTGRES_IMAGE: &str = "postgres:16";
 pub const IPFS_IMAGE: &str = "ipfs/kubo:v0.38.1";
 pub const GOVERNOR_IMAGE: &str = "nginx:1.29-alpine";
 
-/// Requests a second sib lets through to the endpoint unless told otherwise. publicnode's cap,
+/// Requests a second Drydock lets through to the endpoint unless told otherwise. publicnode's cap,
 /// read from its own 429 on 2026-11-11, is 1,200 a minute, which is 20 a second.
 pub const DEFAULT_RPS: u32 = 15;
 
@@ -111,7 +111,7 @@ retention_hours = 24
 pub const UI_HTML: &str = include_str!("../ui/index.html");
 
 /// Serves the page and puts graph-node's query and status ports under the same origin, so the
-/// page needs no CORS and no knowledge of where the node is. A hosted sib can keep the page as
+/// page needs no CORS and no knowledge of where the node is. A hosted Drydock can keep the page as
 /// it is and change only this.
 pub fn ui_conf() -> &'static str {
     r#"events {}
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn nothing_listens_beyond_the_loopback() {
         let c = compose_yaml(
-            "sib-abc",
+            "drydock-abc",
             Ports::default(),
             DEFAULT_RPS,
             &report(Some(2000), vec![]),
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn it_carries_the_settings_the_spike_proved_and_the_measured_range() {
         let c = compose_yaml(
-            "sib-abc",
+            "drydock-abc",
             Ports {
                 query: 28000,
                 admin: 28020,
@@ -332,7 +332,7 @@ mod tests {
         );
         assert!(c.contains("GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE: \"100\""));
         assert!(c.contains("127.0.0.1:28000:8000") && c.contains("127.0.0.1:25001:5001"));
-        assert!(c.contains("name: sib-abc"));
+        assert!(c.contains("name: drydock-abc"));
         assert!(
             c.contains("--locale=C"),
             "graph-node panics on a database without the C locale"
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn the_page_asks_nothing_of_any_other_origin() {
-        // It has to work on a train, and a hosted sib must be able to serve it unchanged.
+        // It has to work on a train, and a hosted Drydock must be able to serve it unchanged.
         for needle in ["https://", "http://"] {
             let outside: Vec<&str> = UI_HTML
                 .match_indices(needle)
@@ -433,7 +433,7 @@ mod tests {
             );
         }
         assert!(
-            UI_HTML.contains("fetch('sib.json'")
+            UI_HTML.contains("fetch('drydock.json'")
                 && UI_HTML.contains("'status/graphql'")
                 && UI_HTML.contains("'query/subgraphs/name/'")
         );

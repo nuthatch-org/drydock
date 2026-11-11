@@ -6,18 +6,18 @@ use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
-use sib::deploy;
-use sib::manifest::{self, Needs};
-use sib::node::{self, Node};
-use sib::preflight::{self, Level, Report, Window};
-use sib::rpc::{self, HttpRpc};
-use sib::stack::{self, Ports};
+use drydock::deploy;
+use drydock::manifest::{self, Needs};
+use drydock::node::{self, Node};
+use drydock::preflight::{self, Level, Report, Window};
+use drydock::rpc::{self, HttpRpc};
+use drydock::stack::{self, Ports};
 
 #[derive(Parser)]
 #[command(
-    name = "sib",
+    name = "drydock",
     version,
-    about = "Studio in a box: run a real graph-node on your own machine against your subgraph"
+    about = "Lodestar Drydock: run a real graph-node on your own machine against your subgraph"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -77,7 +77,7 @@ struct Target {
     last: Option<u64>,
 }
 
-/// What `up` leaves behind for the other commands, in `.sib/state.json`.
+/// What `up` leaves behind for the other commands, in `.drydock/state.json`.
 #[derive(Serialize, Deserialize)]
 struct State {
     name: String,
@@ -114,7 +114,7 @@ impl State {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    // Rust ignores SIGPIPE, so `sib status | head -1` would panic on the second line. Restoring
+    // Rust ignores SIGPIPE, so `drydock status | head -1` would panic on the second line. Restoring
     // the default lets the process end quietly when whatever was reading it goes away.
     #[cfg(unix)]
     unsafe {
@@ -123,7 +123,7 @@ async fn main() -> ExitCode {
     match run(Cli::parse()).await {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("sib: {e:#}");
+            eprintln!("drydock: {e:#}");
             ExitCode::from(2)
         }
     }
@@ -138,10 +138,10 @@ fn subgraph_dir(path: &Path) -> PathBuf {
 }
 
 fn state(subgraph: &Path) -> Result<(PathBuf, State)> {
-    let dir = subgraph_dir(subgraph).join(".sib");
+    let dir = subgraph_dir(subgraph).join(".drydock");
     let text = std::fs::read_to_string(dir.join("state.json")).with_context(|| {
         format!(
-            "no sib stack for {}; run `sib up` there first",
+            "no drydock stack for {}; run `drydock up` there first",
             subgraph.display()
         )
     })?;
@@ -192,7 +192,7 @@ fn compose(dir: &Path, args: &[&str]) -> Result<()> {
         .arg(dir.join("docker-compose.yml"))
         .args(args)
         .status()
-        .context("could not run `docker compose`; sib needs Docker installed and running")?;
+        .context("could not run `docker compose`; Drydock needs Docker installed and running")?;
     if !status.success() {
         bail!("`docker compose {}` failed", args.join(" "));
     }
@@ -272,7 +272,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 return Ok(ExitCode::from(1));
             };
             let root = subgraph_dir(&target.subgraph).canonicalize()?;
-            let dir = root.join(".sib");
+            let dir = root.join(".drydock");
             std::fs::create_dir_all(&dir)?;
             let slug: String = root
                 .file_name()
@@ -297,7 +297,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             };
             let state = State {
                 name: format!("local/{slug}"),
-                project: format!("sib-{slug}"),
+                project: format!("drydock-{slug}"),
                 query: ports.query,
                 admin: ports.admin,
                 status: ports.status,
@@ -341,7 +341,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     .collect();
                 serde_json::json!({ "name": state.name, "network": network, "hash": hash, "queryPort": ports.query, "rps": rps, "findings": findings }).to_string()
             };
-            std::fs::write(dir.join("ui").join("sib.json"), page_data(""))?;
+            std::fs::write(dir.join("ui").join("drydock.json"), page_data(""))?;
 
             if rps > 0 {
                 if changed(&dir.join("nginx.conf"), &stack::governor_conf(&url, rps)?)? {
@@ -369,7 +369,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             let (inside, local) = stack::from_container(&url);
             if local && !reachable_from_container(&dir, &inside) {
                 bail!(
-                    "this machine can reach your RPC at {url}, but the containers cannot.\n{}\nThe stack is still up: fix the RPC and run `sib up` again, or stop it with `sib down`",
+                    "this machine can reach your RPC at {url}, but the containers cannot.\n{}\nThe stack is still up: fix the RPC and run `drydock up` again, or stop it with `drydock down`",
                     stack::local_rpc_fix(cfg!(target_os = "linux"))
                 );
             }
@@ -398,7 +398,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             })?;
             let hash = node.ipfs_add("subgraph.yaml", linked.into_bytes()).await?;
             node.deploy(&state.name, &hash).await?;
-            std::fs::write(dir.join("ui").join("sib.json"), page_data(&hash))?;
+            std::fs::write(dir.join("ui").join("drydock.json"), page_data(&hash))?;
 
             println!("\nDeployed {hash} as {}.", state.name);
             println!("  Open:   http://localhost:{}", ports.ui);
@@ -406,8 +406,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 "  Query:  http://localhost:{}/subgraphs/name/{}",
                 ports.query, state.name
             );
-            println!("  Status: sib status");
-            println!("  Stop:   sib down");
+            println!("  Status: drydock status");
+            println!("  Stop:   drydock down");
             Ok(ExitCode::SUCCESS)
         }
 
@@ -440,7 +440,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 if wipe {
                     "Stopped, and the database, logs and local IPFS are deleted."
                 } else {
-                    "Stopped. The database is kept; `sib up` resumes it."
+                    "Stopped. The database is kept; `drydock up` resumes it."
                 }
             );
             Ok(ExitCode::SUCCESS)

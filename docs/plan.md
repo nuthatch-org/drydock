@@ -1,4 +1,4 @@
-# sib: Studio in a box
+# Lodestar Drydock: the plan
 
 Plan, drafted 2026-11-11 from three research passes (graph-node's source at v0.45.0, browser
 rules for a web page talking to localhost, and what a local node needs from an RPC endpoint) and
@@ -13,7 +13,7 @@ indexer is being switched off chain by chain: BNB Smart Chain and Polygon on 31 
 next. What is left is publishing to mainnet and finding the bug in public. People are asking, in
 those words, for "their own Studio".
 
-## What sib is
+## What Drydock is
 
 **One command that runs a real graph-node on your machine against your subgraph, and a local web
 page that shows what Studio showed: sync progress, indexing errors, mapping logs and a query
@@ -21,7 +21,7 @@ playground.** When it works, one more command hands the build to Lodestar's `/mo
 
 ```sh
 cd my-subgraph
-sib up --rpc base:https://base-rpc.publicnode.com
+drydock up --rpc base:https://base-rpc.publicnode.com
 # builds, deploys to a local graph-node, opens http://localhost:8787
 ```
 
@@ -58,10 +58,10 @@ Reasons, in order:
 ephemeris-node becomes the second engine (`--engine ephemeris`) when it has release binaries and
 can take a build from disk. It is the better experience, no Docker and no Postgres, and it is the
 part nobody else has. Chief agreed on 2026-11-11 that it can be made public. It is still not v0:
-its mainnet corpus is unverified, and the first claim sib makes has to be "this is what indexers
+its mainnet corpus is unverified, and the first claim Drydock makes has to be "this is what indexers
 run".
 
-### 2. The page is served from localhost by sib, not by lodestar-dashboard.com
+### 2. The page is served from localhost by Drydock, not by lodestar-dashboard.com
 
 A hosted HTTPS page fetching `http://localhost` works in Chrome 142+, Edge and Firefox 153+ only
 after a permission prompt, is blocked by default in Brave, and **does not work in Safari at all**
@@ -72,16 +72,16 @@ Prisma and Supabase do.
 
 graph-node already sends `Access-Control-Allow-Origin: *` on the query port (8000) and the status
 port (8030), so the page can read both directly. The admin port (8020) sends no CORS headers, so
-redeploy, pause and remove go through sib's own small server.
+redeploy, pause and remove go through Drydock's own small server.
 
 ### 3. An RPC preflight, before anything starts
 
-This is the highest-value thing sib adds, because **every RPC failure inside graph-node is silent
+This is the highest-value thing Drydock adds, because **every RPC failure inside graph-node is silent
 or misleading**: a range cap becomes a restart loop, missing state becomes a stall that looks like
 slow sync, and a plain `network:url` silently declares `archive,traces` whether or not the
 endpoint has either.
 
-Before starting, sib probes the endpoint and reads the built manifest:
+Before starting, Drydock probes the endpoint and reads the built manifest:
 
 | Probe | Why |
 |---|---|
@@ -100,14 +100,14 @@ Measured on 11 November 2026, single-shot from one IP:
 - `arb1.arbitrum.io/rpc` served 100,000-block ranges but state only 5,000 to 10,000 blocks back.
 - Free Alchemy caps `eth_getLogs` at 10 blocks; free QuickNode at 5.
 
-These limits moved between September and November, so sib measures them every time and ships no
+These limits moved between September and November, so Drydock measures them every time and ships no
 table of them.
 
 ### 4. `--last N`: test on a recent window
 
 Free endpoints make a full-history sync of an old subgraph impractical. `--last 200000` rewrites
 `startBlock` in a temporary copy of the built manifest. The deployment ID changes, which is
-harmless for a test. sib prints two warnings every time, because both are silent otherwise:
+harmless for a test. Drydock prints two warnings every time, because both are silent otherwise:
 factory children created before the window are never discovered, and handlers that depend on
 earlier state do nothing or abort.
 
@@ -126,13 +126,13 @@ From ephemeris-node's notes and graph-node's source:
   authentication.
 - Pin every image. The official compose pins none.
 
-### 6. It lives in `nuthatch-org/sib`, written in Rust
+### 6. It lives in `nuthatch-org/drydock`, written in Rust
 
-A new repo in gib's mould, public once it works end to end. The CLI is one Rust binary, `sib`,
+A new repo in gib's mould, public once it works end to end. The CLI is one Rust binary, `drydock`,
 decided by Chief on 2026-11-11 over a TypeScript recommendation. The price is a release pipeline:
 prebuilt binaries for macOS (arm64, x64) and Linux (arm64, x64), with Windows through WSL at
-first, and an npm package `studio-in-a-box` that only downloads the right one, as
-`@graphprotocol/gnd` does, so `npx studio-in-a-box up` still works for people who live in Node.
+first, and an npm package `lodestar-drydock` that only downloads the right one, as
+`@graphprotocol/gnd` does, so `npx lodestar-drydock up` still works for people who live in Node.
 The page is static files compiled into the binary.
 
 ## What the page shows
@@ -157,15 +157,15 @@ Estimates are working days and are mine, not measured.
 | Phase | What | Days | Done when |
 |---|---|---|---|
 | 0. Spike | Compose with a generated config on one real Base subgraph. Confirm `_logs` with the file store, the write-batch setting and CORS from a localhost page | **done 2026-11-11** | See [spike.md](spike.md). No timings: the machine was busy |
-| 1. CLI | `up`, `down`, `status`, `logs`; preflight; compose and config generation; build and deploy to the local node; `--last N`; `--watch`; release binaries | 4 | `sib up` works on a clean machine with Docker, on Base and Arbitrum |
+| 1. CLI | `up`, `down`, `status`, `logs`; preflight; compose and config generation; build and deploy to the local node; `--last N`; `--watch`; release binaries | 4 | `drydock up` works on a clean machine with Docker, on Base and Arbitrum |
 | 2. Page | The six panels above, served by the CLI | 3 | Usable in Safari, Firefox, Chrome and Brave with no prompts |
-| 3. Launch | `sib publish` handoff to `/move`; a page on Lodestar; the agent skill gains `sib`; a blog post and a video | 2 | Announced |
+| 3. Launch | `drydock publish` handoff to `/move`; a page on Lodestar; the agent skill gains `drydock`; a blog post and a video | 2 | Announced |
 | 4. ephemeris engine | Open the repo, release binaries, build-from-disk, `--engine ephemeris` | open | A subgraph that passes on graph-node passes on it, by `ephemeris-node diff` |
-| 5. Hosted | The same page with the node on our side, behind the Dock's deploy keys | open | See "Later: a hosted sib" |
+| 5. Hosted | The same page with the node on our side, behind the Dock's deploy keys | open | See "Later: a hosted Drydock" |
 
 Phases 0 to 3 are about ten days.
 
-## Later: a hosted sib
+## Later: a hosted Drydock
 
 Chief, 2026-11-11: self-hosted comes first, and there should be a hosted version afterwards for
 people who do not want to run anything. Written down now so the self-hosted design does not
@@ -177,7 +177,7 @@ endpoint, a sync bar, errors and logs. This is what Studio's test indexer was.
 
 **Most of the front half exists.** Lodestar's Dock already issues deploy keys and has a
 `/api/studio/node` endpoint that speaks `graph deploy`'s dialect. Today it authenticates the CLI
-and records the build, and there is no graph-node behind it. Hosted sib is, roughly, putting one
+and records the build, and there is no graph-node behind it. Hosted Drydock is, roughly, putting one
 there.
 
 **What it costs, which is why it was not built in November.** Three things, in order:
@@ -192,12 +192,12 @@ there.
 
 **What the self-hosted work must keep true so this stays cheap to add:**
 
-- The page reads only graph-node's own HTTP surfaces and sib's small server. It must not assume
+- The page reads only graph-node's own HTTP surfaces and Drydock's small server. It must not assume
   the node is on localhost; the base URL is configuration.
 - The preflight and the governor are per endpoint, not per machine. A hosted node needs the
   governor more than a laptop does.
 - The engine stays behind an interface. **ephemeris-node is what makes hosting affordable**: no
-  Postgres per tenant, a few hundred megabytes at rest, state in one file. A hosted sib on stock
+  Postgres per tenant, a few hundred megabytes at rest, state in one file. A hosted Drydock on stock
   graph-node is possible; on ephemeris-node it is the kind of thing a single box can do for many
   people.
 
@@ -222,7 +222,7 @@ browser. That is the first thing to check, and it is small.
 
 ## What it will not do
 
-- **Make a bad RPC good.** An old subgraph on a free endpoint will be slow, and sib will say how
+- **Make a bad RPC good.** An old subgraph on a free endpoint will be slow, and Drydock will say how
   slow before it starts. Call handlers need `trace_filter`, which almost no free tier has.
 - **Serve production queries.** It is a rehearsal room.
 - **Guarantee what an indexer will see.** Same engine, different RPC, different history depth.
@@ -232,7 +232,9 @@ browser. That is the first thing to check, and it is small.
 ## Decided with Chief, 2026-11-11
 
 1. **Rust** for the CLI.
-2. **`studio-in-a-box`** is the name; `sib` for short.
+2. **Lodestar Drydock** is the name, decided later the same day in place of `sib`, "studio in a
+   box": part of Lodestar's suite beside the Dock, and not the Foundation's product name. The
+   command is `drydock`, the npm package `lodestar-drydock`.
 3. **ephemeris-node can be made public.**
 4. **The spike runs on the ThinkPad.**
 

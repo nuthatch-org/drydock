@@ -7,12 +7,12 @@ export function handleTransfer(event: Transfer): void {
   if (c == null) {
     c = new Counter('all');
     c.transfers = BigInt.zero();
-    log.info('sib spike: first transfer seen at block {}', [event.block.number.toString()]);
+    log.info('Drydock spike: first transfer seen at block {}', [event.block.number.toString()]);
   }
   c.transfers = c.transfers.plus(BigInt.fromI32(1));
   c.lastBlock = event.block.number;
   if (c.transfers.mod(BigInt.fromI32(500)).isZero()) {
-    log.info('sib spike: {} transfers by block {}', [c.transfers.toString(), event.block.number.toString()]);
+    log.info('Drydock spike: {} transfers by block {}', [c.transfers.toString(), event.block.number.toString()]);
   }
   if (c.transfers.equals(BigInt.fromI32(300))) {
     let missing = Counter.load('does-not-exist');

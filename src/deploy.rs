@@ -1,8 +1,8 @@
 //! Put a built subgraph on the local node: files to the local IPFS, then one admin call.
 //!
 //! This is what `graph deploy` does, done here so that the start block can be moved in the same
-//! pass (`--last N`) and so that sib does not need graph-cli at run time. Nothing is uploaded
-//! anywhere but the IPFS node sib itself started.
+//! pass (`--last N`) and so that Drydock does not need graph-cli at run time. Nothing is uploaded
+//! anywhere but the IPFS node Drydock itself started.
 
 use anyhow::{Context, Result};
 use serde_yaml_ng::{Mapping, Value};
