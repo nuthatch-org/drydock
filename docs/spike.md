@@ -15,7 +15,7 @@ Stack: `graphprotocol/graph-node:v0.45.0`, `postgres:16`, `ipfs/kubo:v0.38.1`, w
 |---|---|
 | Does `[log_store] backend = "file"` give `_logs` over HTTP on v0.45.0? | **Yes.** `Log store initialized, backend: File`. `_logs` on the subgraph's own endpoint returns mapping `log.info` lines (tagged `component: UserMapping`) and graph-node's own lines for that deployment |
 | Can a page on `http://localhost:8787` read ports 8000 and 8030? | **Yes.** Preflight answers 200 with `access-control-allow-origin: *` and `Content-Type` allowed on both |
-| Can it call the admin port? | **No.** `OPTIONS` on 8020 is 405. Redeploy has to go through sib |
+| Can it call the admin port? | **No.** `OPTIONS` on 8020 is 405. Redeploy has to go through Drydock |
 | Does the status API follow a sync? | **Not by default.** See below |
 | What does a handler failure look like? | `health: failed`, `deterministic: true`, block number, and a message naming **file, line, column and handler**: `Mapping aborted at src/mapping.ts, line 20, column 19, with message: unexpected null in handler handleTransfer at block #56055226`. The `handler` field itself was null; the name is only in the message |
 | Does a free Base endpoint carry it? | **Yes, slowly and noisily.** See below |
@@ -28,7 +28,7 @@ minutes into a healthy sync that had processed about 950 blocks, `indexingStatus
 `latestBlock` equal to the start block and `entityCount: 0`, and the entity query returned null.
 With `GRAPH_STORE_WRITE_BATCH_DURATION=0` the same query moved every sample and the entity was
 readable mid-sync. Restarting the node without it also lost the unflushed work. This was marked
-*inferred* in the plan and is now measured: **sib sets it to 0.**
+*inferred* in the plan and is now measured: **Drydock sets it to 0.**
 
 **publicnode rate-limits at 1,200 requests a minute and graph-node has no brake.** On a contract
 with transfers in every block, graph-node asked for blocks faster than that. 105 of 9,475 log
@@ -39,7 +39,7 @@ Whether `ETHEREUM_BLOCK_BATCH_SIZE` or a per-provider limit can hold it under th
 thing to try.
 
 **The file log store is verbose.** 35 MB in seven minutes for one deployment, because every
-trigger is logged at DEBUG. sib needs a retention setting from the start and the page should
+trigger is logged at DEBUG. Drydock needs a retention setting from the start and the page should
 default to INFO and above.
 
 **The log files are written as root** inside the bind mount. Use a named volume, not a bind mount.
@@ -60,13 +60,13 @@ default to INFO and above.
 - Any chain but Base.
 - Docker Desktop on macOS, which is where most developers will run it.
 - An RPC on the developer's own machine, such as Anvil. A container cannot reach the host's
-  `localhost`, so sib will have to rewrite it.
+  `localhost`, so Drydock will have to rewrite it.
 
-## Second run: `sib up`, and the brake
+## Second run: `drydock up`, and the brake
 
-The same day, the same machine, the same subgraph, this time through `sib up` (commit on
-`pete/preflight`). `sib up` checked the endpoint, wrote the stack, uploaded and linked the build
-to the local IPFS itself, and deployed it. Stopping with `sib down` and starting again resumed at
+The same day, the same machine, the same subgraph, this time through `drydock up` (commit on
+`pete/preflight`). `drydock up` checked the endpoint, wrote the stack, uploaded and linked the build
+to the local IPFS itself, and deployed it. Stopping with `drydock down` and starting again resumed at
 the block it had reached, on the same deployment hash.
 
 **Stock graph-node cannot hold itself under a rate limit, and stalls for it.** With requests going
@@ -91,7 +91,7 @@ with an empty key. 37 requests a second went through a "15 a second" limit. It i
 `$server_port` now, and there is a test that says why.
 
 Also found: an endpoint that has just been hammered will rate-limit the preflight's first call.
-`sib` now says that in words. And the governor returned six 403s from publicnode that never
+`drydock` now says that in words. And the governor returned six 403s from publicnode that never
 appeared in graph-node's log and did not affect the sync; unexplained.
 
 A contract with a transfer in every block is the worst case for this, since graph-node fetches
@@ -106,14 +106,14 @@ Later the same day, with a dedicated GraphOps RPC key (`sib-dev`), still on the 
 |---|---|
 | Preflight, GraphOps Base, start block 1,000,000 | Passes. 10,000-block ranges, logs and state at the start. publicnode refuses the same subgraph: logs yes, state no |
 | A mapping that calls `totalSupply()`, read from the real compiled wasm | The preflight adds the state check, and the config declares `features = ["archive"]`, which it does not for an events-only subgraph |
-| `sib up --last 3000 --rps 50` on a manifest that starts at block 30,000,000 | Deployed with the start block moved to 3,000 back. The calls returned values, visible in `_logs` |
-| A mapping that dereferences null on its 300th transfer | `sib status` exits 1 with the file, line, handler and block, and says it is deterministic |
+| `drydock up --last 3000 --rps 50` on a manifest that starts at block 30,000,000 | Deployed with the start block moved to 3,000 back. The calls returned values, visible in `_logs` |
+| A mapping that dereferences null on its 300th transfer | `drydock status` exits 1 with the file, line, handler and block, and says it is deterministic |
 | Two stacks at once, `--port-offset 20000` and `21000` | No collision |
 
 At 50 requests a second on this endpoint the busy-contract sync ran at about 18 blocks a second.
 That is a count over one minute on a loaded machine, not a benchmark.
 
-The generated `nginx.conf` holds the RPC URL, and so the key. It sits in `.sib/`, which sib
+The generated `nginx.conf` holds the RPC URL, and so the key. It sits in `.drydock/`, which Drydock
 writes a `.gitignore` for.
 
 ## Fourth run: the page
@@ -133,8 +133,20 @@ Three faults were found by running it, none by reading it:
 
 - **A stopped node left stale figures on screen.** The proxy waited a minute for a dead upstream
   and the page's fetches had no timeout. Both have one now.
-- **`--last` broke resuming.** The window was measured from the current head, so every `sib up`
+- **`--last` broke resuming.** The window was measured from the current head, so every `drydock up`
   gave a different start block, a different deployment and a re-index. The window is now fixed in
-  `.sib/state.json` the first time: three runs in a row gave the same hash.
+  `.drydock/state.json` the first time: three runs in a row gave the same hash.
 - **A changed config did not reach a running container.** Docker does not restart one when a
-  mounted file changes. sib restarts the proxies whose config it rewrote.
+  mounted file changes. Drydock restarts the proxies whose config it rewrote.
+
+## Fifth run: an RPC on the developer's own machine
+
+A stand-in for Anvil: a proxy to the free endpoint, published on the ThinkPad at `localhost`.
+
+| Case | Result |
+|---|---|
+| Listening where containers can reach it | `drydock up --rpc base:http://localhost:18545` rewrote the URL to `host.docker.internal` for the stack and synced |
+| Listening on 127.0.0.1 only | The preflight passed, because this machine can reach it. Drydock then asked again from inside a container, found it could not, and stopped with the fix (`anvil --host 0.0.0.0`) |
+
+Without the second check graph-node would have started against an RPC it could not reach and
+said nothing useful. Also fixed: `drydock status | head -1` panicked on a closed pipe.

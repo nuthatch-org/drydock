@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sib</title>
+<title>Drydock</title>
 <style>
 :root {
   --bg: #171614; --bg-elev: #201f1c; --bg-code: #1b1a17; --bg-inset: #262420;
@@ -81,7 +81,7 @@ code.cmd { display: block; background: var(--bg-inset); border: 1px solid var(--
 <body>
 <main>
   <header>
-    <p class="kicker">Studio in a box</p>
+    <p class="kicker">Lodestar Drydock</p>
     <h1 id="name">…</h1>
     <div class="row" style="margin-top:0.6rem">
       <span class="badge" id="state">connecting</span>
@@ -244,7 +244,7 @@ async function pollStatus() {
       $('failure').hidden = false;
       $('failure-message').textContent = e.message + (e.block ? '\n\nat block ' + fmt(e.block.number) : '');
       $('failure-verdict').textContent = e.deterministic
-        ? 'It is deterministic: the mapping has a bug, and every indexer would stop at the same block. Fix it, run graph build, then sib up again.'
+        ? 'It is deterministic: the mapping has a bug, and every indexer would stop at the same block. Fix it, run graph build, then drydock up again.'
         : 'It is not deterministic, so it is more likely the RPC endpoint than your mapping.';
     } else {
       $('failure').hidden = true;
@@ -253,7 +253,7 @@ async function pollStatus() {
   } catch (e) {
     setState('unreachable', 'bad');
     $('unreachable').hidden = false;
-    $('unreachable').textContent = 'graph-node did not answer (' + e.message + '). Nothing below is current. If you stopped it, sib up starts it again.';
+    $('unreachable').textContent = 'graph-node did not answer (' + e.message + '). Nothing below is current. If you stopped it, drydock up starts it again.';
     unavailable();
   }
 }
@@ -308,7 +308,7 @@ async function pollThrottle() {
     const body = await gql(queryUrl(), '{ _logs(first: 50, orderDirection: desc, search: "429", from: "' + since + '") { text } }');
     const hits = (body.data?._logs || []).filter((l) => /HTTP error 429|rate limit/i.test(l.text)).length;
     $('throttled').hidden = hits === 0;
-    if (hits) $('throttled').textContent = 'Your RPC endpoint refused ' + hits + (hits >= 50 ? ' or more' : '') + ' requests for rate in the last 90 seconds. The sync is not stuck; it is waiting. ' + (cfg.rps > 0 ? 'sib is letting ' + cfg.rps + ' a second through, which is more than this endpoint allows: run sib up again with a lower --rps.' : 'Nothing is holding graph-node back: run sib up again without --rps 0, and sib will hold it to a rate the endpoint accepts.');
+    if (hits) $('throttled').textContent = 'Your RPC endpoint refused ' + hits + (hits >= 50 ? ' or more' : '') + ' requests for rate in the last 90 seconds. The sync is not stuck; it is waiting. ' + (cfg.rps > 0 ? 'Drydock is letting ' + cfg.rps + ' a second through, which is more than this endpoint allows: run drydock up again with a lower --rps.' : 'Nothing is holding graph-node back: run drydock up again without --rps 0, and Drydock will hold it to a rate the endpoint accepts.');
   } catch { $('throttled').hidden = true; }
 }
 
@@ -335,13 +335,13 @@ async function runQuery() {
 
 async function start() {
   try {
-    cfg = { ...cfg, ...(await (await fetch('sib.json', { cache: 'no-store' })).json()) };
+    cfg = { ...cfg, ...(await (await fetch('drydock.json', { cache: 'no-store' })).json()) };
   } catch {
     $('unreachable').hidden = false;
-    $('unreachable').textContent = 'sib.json is missing, so this page does not know which subgraph to show. Run sib up again.';
+    $('unreachable').textContent = 'drydock.json is missing, so this page does not know which subgraph to show. Run drydock up again.';
     return;
   }
-  document.title = cfg.name + ' · sib';
+  document.title = cfg.name + ' · Drydock';
   $('name').textContent = cfg.name;
   $('network').textContent = cfg.network;
   $('hash').textContent = cfg.hash;
@@ -357,7 +357,7 @@ async function start() {
     }));
   }
   $('governor').textContent = cfg.rps > 0
-    ? 'sib is holding graph-node to ' + cfg.rps + ' requests a second to this endpoint (--rps).'
+    ? 'Drydock is holding graph-node to ' + cfg.rps + ' requests a second to this endpoint (--rps).'
     : 'Requests to this endpoint are not limited (--rps 0).';
 
   document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {

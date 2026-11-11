@@ -104,7 +104,7 @@ pub fn needs(manifest: &str, wasm: impl Fn(&str) -> Option<Vec<u8>>) -> Result<N
         .filter(|d| d.kind.starts_with("ethereum"))
         .collect();
     if chain.is_empty() {
-        bail!("the manifest has no ethereum data source; sib only runs EVM subgraphs");
+        bail!("the manifest has no ethereum data source; Drydock only runs EVM subgraphs");
     }
     let mut networks: Vec<&str> = chain.iter().filter_map(|d| d.network.as_deref()).collect();
     networks.sort_unstable();
@@ -113,7 +113,7 @@ pub fn needs(manifest: &str, wasm: impl Fn(&str) -> Option<Vec<u8>>) -> Result<N
         [one] => one.to_string(),
         [] => bail!("no data source names a network"),
         many => bail!(
-            "data sources name more than one network ({}); sib runs one chain",
+            "data sources name more than one network ({}); Drydock runs one chain",
             many.join(", ")
         ),
     };

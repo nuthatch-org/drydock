@@ -14,7 +14,7 @@ use crate::rpc::{Rpc, RpcError, from_hex, hex};
 
 /// Block ranges tried for `eth_getLogs`, widest first. The first one accepted is the cap.
 const RANGES: [u64; 9] = [100_000, 50_000, 10_000, 5_000, 2_000, 1_000, 500, 100, 10];
-/// graph-node's own ceiling (`GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE`), which sib never raises.
+/// graph-node's own ceiling (`GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE`), which Drydock never raises.
 const GRAPH_NODE_MAX_RANGE: u64 = 2_000;
 /// Kept clear of the head so a probe is not answered differently by two backends mid-reorg.
 const HEAD_MARGIN: u64 = 64;
@@ -163,7 +163,7 @@ pub async fn run_with_pause(
             note!(
                 Level::Warn,
                 format!(
-                    "Logs: capped at {r} blocks a request, so {to_sync} blocks is at least {requests} requests. sib will hold graph-node to {r}; left alone, graph-node v0.45.0 asks for more and loops."
+                    "Logs: capped at {r} blocks a request, so {to_sync} blocks is at least {requests} requests. Drydock will hold graph-node to {r}; left alone, graph-node v0.45.0 asks for more and loops."
                 ),
             )
         }
@@ -296,7 +296,7 @@ pub async fn run_with_pause(
         // A dozen requests cannot find a per-minute cap. publicnode passed this and then
         // throttled a real sync at 1,200 a minute on 2026-11-11.
         None if !findings.iter().any(|f| f.level == Level::Blocker) => {
-            note!(Level::Ok, "Rate limit: none hit, but these were a dozen requests. A shared endpoint may still throttle a real sync; sib shows it when it does.".into())
+            note!(Level::Ok, "Rate limit: none hit, but these were a dozen requests. A shared endpoint may still throttle a real sync; Drydock shows it when it does.".into())
         }
         None => {}
     }

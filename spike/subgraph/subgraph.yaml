@@ -1,5 +1,5 @@
 specVersion: 1.2.0
-description: sib spike. USDC transfers on Base, with a log line per handler call.
+description: Drydock spike. USDC transfers on Base, with a log line per handler call.
 schema:
   file: ./schema.graphql
 dataSources:

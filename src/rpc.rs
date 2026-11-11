@@ -36,7 +36,7 @@ impl HttpRpc {
     pub fn new(url: &str) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent(concat!("sib/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("drydock/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("a default TLS client");
         Self {
@@ -113,7 +113,7 @@ pub fn from_hex(v: &Value) -> Option<u64> {
 }
 
 /// `network:url`, with graph-node's optional capabilities between the two tolerated and ignored,
-/// since sib measures them itself.
+/// since Drydock measures them itself.
 pub fn parse_spec(spec: &str) -> Option<(String, String)> {
     let at = spec.find("://")?;
     let scheme_start = spec[..at].rfind(':')? + 1;

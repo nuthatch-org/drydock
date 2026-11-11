@@ -91,7 +91,7 @@ impl Node {
             }
             if tokio::time::Instant::now() > deadline {
                 bail!(
-                    "the stack did not come up in {}s (IPFS {}, graph-node {}). `sib logs` shows why",
+                    "the stack did not come up in {}s (IPFS {}, graph-node {}). `drydock logs` shows why",
                     limit.as_secs(),
                     if ipfs { "up" } else { "down" },
                     if admin { "up" } else { "down" }
@@ -169,7 +169,7 @@ impl Node {
             .json(&body)
             .send()
             .await
-            .context("the status port did not answer; is the stack up? (`sib up`)")?
+            .context("the status port did not answer; is the stack up? (`drydock up`)")?
             .json()
             .await?;
         if let Some(e) = res.get("errors") {

@@ -1,4 +1,4 @@
-name: sib-spike
+name: drydock-spike
 services:
   graph-node:
     image: graphprotocol/graph-node:v0.45.0
