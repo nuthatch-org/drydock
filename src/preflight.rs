@@ -13,6 +13,9 @@ use crate::manifest::Needs;
 use crate::rpc::{Rpc, RpcError, from_hex, hex};
 
 /// Block ranges tried for `eth_getLogs`, widest first. The first one accepted is the cap.
+/// What graph-node sends by default, then smaller. One address is not a list, so two is the floor.
+const GRAPH_NODE_MAX_ADDRESSES: u64 = 2_000;
+const ADDRESS_COUNTS: [u64; 7] = [GRAPH_NODE_MAX_ADDRESSES, 1_000, 100, 50, 10, 5, 2];
 const RANGES: [u64; 9] = [100_000, 50_000, 10_000, 5_000, 2_000, 1_000, 500, 100, 10];
 /// graph-node's own ceiling (`GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE`), which Drydock never raises.
 const GRAPH_NODE_MAX_RANGE: u64 = 2_000;
@@ -44,6 +47,9 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// For `GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE`. None when no range was accepted at all.
     pub max_block_range: Option<u64>,
+    /// For `GRAPH_ETH_GET_LOGS_MAX_CONTRACTS`: the most addresses one `eth_getLogs` may name,
+    /// when that is fewer than graph-node sends. Measured only for a subgraph with templates.
+    pub max_log_addresses: Option<u64>,
     /// What to declare to graph-node for this provider. Measured, where graph-node would assume.
     pub features: Vec<&'static str>,
 }
@@ -286,6 +292,36 @@ pub async fn run_with_pause(
         Err(_) => note!(Level::Warn, "Receipts: no eth_getBlockReceipts, so graph-node fetches one receipt per transaction near the head. Slower, and harder on a rate limit.".into()),
     }
 
+    // A subgraph with templates asks for logs from every contract it has created, in one query.
+    // publicnode allows ten addresses; on 2026-11-11 a factory subgraph created its eleventh
+    // pair, was refused with a 403 on every retry, and sat at that block reporting itself healthy.
+    let mut max_log_addresses = None;
+    if needs.templates && accepted.is_some() {
+        let mut allowed = None;
+        for count in ADDRESS_COUNTS {
+            let mut filter = logs_filter(None, tip, tip);
+            filter[0]["address"] = json!(
+                (1..=count)
+                    .map(|i| format!("{i:#042x}"))
+                    .collect::<Vec<_>>()
+            );
+            if ask(rpc, pause, &mut limited, "eth_getLogs", filter)
+                .await
+                .is_ok()
+            {
+                allowed = Some(count);
+                break;
+            }
+        }
+        match allowed {
+            Some(n) if n >= GRAPH_NODE_MAX_ADDRESSES => {}
+            Some(n) => {
+                max_log_addresses = Some(n);
+                note!(Level::Warn, format!("Logs: at most {n} contract addresses in one query, and this subgraph creates data sources at runtime. graph-node will be told to ask for {n} at a time, which is slower once there are many."));
+            }
+            None => note!(Level::Blocker, "Logs: refuses a query naming more than one contract address, and this subgraph creates data sources at runtime. It would stall at the second one.".into()),
+        }
+    }
     match limited {
         Some(m) => note!(
             Level::Warn,
@@ -319,6 +355,7 @@ pub async fn run_with_pause(
         start,
         findings,
         max_block_range,
+        max_log_addresses,
         features,
     })
 }
@@ -336,6 +373,8 @@ mod tests {
         log_depth: u64,
         state_depth: u64,
         addressless: bool,
+        /// The most addresses one eth_getLogs may name, as publicnode's ten.
+        log_addresses: u64,
         receipts: bool,
         traces: bool,
         /// Refuse every eth_getLogs as rate-limited, as mainnet.base.org did.
@@ -351,6 +390,7 @@ mod tests {
                 log_depth: 5_000_000,
                 state_depth: 3_000_000,
                 addressless: false,
+                log_addresses: 10_000,
                 receipts: true,
                 traces: false,
                 logs_limited: false,
@@ -377,6 +417,15 @@ mod tests {
                     let (from, to) = (block(&f["fromBlock"]), block(&f["toBlock"]));
                     if f.get("address").is_none() && !self.addressless {
                         return Err(RpcError::Refused("Please specify an address".into()));
+                    }
+                    if f["address"]
+                        .as_array()
+                        .is_some_and(|a| a.len() as u64 > self.log_addresses)
+                    {
+                        return Err(RpcError::Refused(format!(
+                            "A maximum of {} addresses is allowed.",
+                            self.log_addresses
+                        )));
                     }
                     if to - from + 1 > self.log_range {
                         return Err(RpcError::Refused(format!(
@@ -454,6 +503,35 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(whole.start, needs().start_block);
+    }
+
+    #[tokio::test]
+    async fn an_address_cap_is_measured_for_a_subgraph_with_templates_only() {
+        let capped = || Endpoint {
+            log_addresses: 10,
+            ..Endpoint::generous()
+        };
+        let factory = Needs {
+            templates: true,
+            ..needs()
+        };
+        let r = check(capped(), factory.clone(), None).await;
+        assert_eq!(r.max_log_addresses, Some(10));
+        assert!(says(&r, Level::Warn, "at most 10 contract addresses"));
+        assert!(!r.blocked());
+
+        // No templates, no question: the cap cannot bite.
+        assert_eq!(check(capped(), needs(), None).await.max_log_addresses, None);
+        // Room for everything graph-node sends is not worth a line.
+        let roomy = check(Endpoint::generous(), factory.clone(), None).await;
+        assert_eq!(roomy.max_log_addresses, None);
+        assert!(!says(&roomy, Level::Warn, "contract addresses"));
+
+        let single = Endpoint {
+            log_addresses: 1,
+            ..Endpoint::generous()
+        };
+        assert!(check(single, factory, None).await.blocked());
     }
 
     fn says(r: &Report, level: Level, needle: &str) -> bool {

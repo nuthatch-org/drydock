@@ -90,9 +90,15 @@ when you ask.
   trouble at 75 MB: build one and name it in `DRYDOCK_GRAPH_NODE_IMAGE`. Docker Desktop with
   Rosetta has not been tried.
 - **Windows.** Nobody has run it.
-- **Subgraphs with templates, and call handlers.** `preflight` reads both from the manifest, and
-  no subgraph that has them has been synced here.
-- **Chains other than Base.** Nothing is chain-specific, and Base is the only one measured.
+- **Call handlers, synced.** `preflight` refuses an endpoint without `trace_filter` for a subgraph
+  that has them, which is every free endpoint tried. No subgraph with call handlers has been
+  synced here, because that takes an endpoint with traces.
+
+Tried on 11 November 2026, on an Apple Silicon Mac with a graph-node built for arm64: a factory
+with a template on Base (23 pairs created and followed), and USDC on Arbitrum One. The template
+run found that publicnode allows ten contract addresses in one log query, where graph-node sends
+up to 2,000 and retries a refusal for ever while reporting itself healthy. `preflight` now measures
+that limit and `up` passes it to graph-node.
 
 It runs graph-node v0.45.0, Postgres 16 and Kubo v0.38.1, pinned. The plan is in
 [docs/plan.md](docs/plan.md) and what has been measured is in [docs/spike.md](docs/spike.md).
