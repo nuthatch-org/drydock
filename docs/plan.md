@@ -21,7 +21,7 @@ playground.** When it works, one more command hands the build to Lodestar's `/mo
 
 ```sh
 cd my-subgraph
-npx studio-in-a-box up --rpc base:https://base-rpc.publicnode.com
+sib up --rpc base:https://base-rpc.publicnode.com
 # builds, deploys to a local graph-node, opens http://localhost:8787
 ```
 
@@ -57,7 +57,9 @@ Reasons, in order:
 
 ephemeris-node becomes the second engine (`--engine ephemeris`) when it has release binaries and
 can take a build from disk. It is the better experience, no Docker and no Postgres, and it is the
-part nobody else has. It is not v0 because v0 must not depend on publishing a private repo.
+part nobody else has. Chief agreed on 2026-11-11 that it can be made public. It is still not v0:
+its mainnet corpus is unverified, and the first claim sib makes has to be "this is what indexers
+run".
 
 ### 2. The page is served from localhost by sib, not by lodestar-dashboard.com
 
@@ -123,13 +125,14 @@ From ephemeris-node's notes and graph-node's source:
   authentication.
 - Pin every image. The official compose pins none.
 
-### 6. It lives in `nuthatch-org/sib`, written in TypeScript
+### 6. It lives in `nuthatch-org/sib`, written in Rust
 
-A new public repo in gib's mould. The CLI is Node, published to npm as `studio-in-a-box`
-(`sib` is taken), because every subgraph developer already has Node and `npx` beside graph-cli,
-and a Rust binary would need five platform builds and macOS notarisation before the first user.
-**This goes against the house preference for Rust in CLIs and is the decision most worth a
-second opinion.**
+A new repo in gib's mould, public once it works end to end. The CLI is one Rust binary, `sib`,
+decided by Chief on 2026-11-11 over a TypeScript recommendation. The price is a release pipeline:
+prebuilt binaries for macOS (arm64, x64) and Linux (arm64, x64), with Windows through WSL at
+first, and an npm package `studio-in-a-box` that only downloads the right one, as
+`@graphprotocol/gnd` does, so `npx studio-in-a-box up` still works for people who live in Node.
+The page is static files compiled into the binary.
 
 ## What the page shows
 
@@ -153,12 +156,12 @@ Estimates are working days and are mine, not measured.
 | Phase | What | Days | Done when |
 |---|---|---|---|
 | 0. Spike | Compose with a generated config on one real Base subgraph. Confirm `_logs` with the file store, the write-batch setting, CORS from a localhost page, and time a sync | 1 | A subgraph syncs, its logs come back over HTTP, and the numbers are written down |
-| 1. CLI | `up`, `down`, `status`, `logs`; preflight; compose and config generation; build and deploy to the local node; `--last N`; `--watch` | 3 | `npx studio-in-a-box up` works on a clean machine with Docker, on Base and Arbitrum |
+| 1. CLI | `up`, `down`, `status`, `logs`; preflight; compose and config generation; build and deploy to the local node; `--last N`; `--watch`; release binaries | 4 | `sib up` works on a clean machine with Docker, on Base and Arbitrum |
 | 2. Page | The six panels above, served by the CLI | 3 | Usable in Safari, Firefox, Chrome and Brave with no prompts |
 | 3. Launch | `sib publish` handoff to `/move`; a page on Lodestar; the agent skill gains `sib`; a blog post and a video | 2 | Announced |
-| 4. ephemeris engine | Release binaries, build-from-disk, `--engine ephemeris` | open | Needs a decision on opening ephemeris-node |
+| 4. ephemeris engine | Open the repo, release binaries, build-from-disk, `--engine ephemeris` | open | A subgraph that passes on graph-node passes on it, by `ephemeris-node diff` |
 
-Phases 0 to 3 are about nine days.
+Phases 0 to 3 are about ten days.
 
 ## What it will not do
 
@@ -169,15 +172,12 @@ Phases 0 to 3 are about nine days.
 - **Run without Docker**, until the ephemeris engine exists.
 - **Replace API keys, billing or publishing.** Those stay where they are.
 
-## Open questions for Chief
+## Decided with Chief, 2026-11-11
 
-1. **TypeScript or Rust for the CLI?** Recommended: TypeScript, for reach. See decision 6.
-2. **Is "Studio" in the name acceptable?** It is the Foundation's product name. It tells people
-   instantly what this replaces, and it may draw a request to rename. Alternatives: `subgraph-bench`,
-   `rehearsal`.
-3. **Does ephemeris-node become public?** Phase 4 depends on it and nothing before does.
-4. **Where does the spike run?** Docker is not running on the Mac. The ThinkPad has the
-   conformance stack's images already and has been idle since the 24 September reboot.
+1. **Rust** for the CLI.
+2. **`studio-in-a-box`** is the name; `sib` for short.
+3. **ephemeris-node can be made public.**
+4. **The spike runs on the ThinkPad.**
 
 ## Sources
 
