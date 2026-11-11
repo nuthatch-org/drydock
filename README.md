@@ -14,6 +14,9 @@ When it looks right, publish it from [lodestar-dashboard.com/move](https://www.l
 far has been. See [what has not been tried](#what-has-not-been-tried) before trusting it with
 something else.
 
+**[The guide](docs/guide.md)** walks through a first run, what the page shows, and what each
+failure means.
+
 ## Install
 
 You need Docker with Compose, and a subgraph that `graph build` has built.
