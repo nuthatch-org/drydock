@@ -54,11 +54,13 @@ default to INFO and above.
 ## Not tested
 
 - Timing of any kind.
-- `eth_call` from a mapping, and therefore the state-depth half of the preflight.
 - A subgraph with `features: [nonFatalErrors]`, which is where `GRAPH_DISABLE_FAIL_FAST` matters.
 - A factory or template subgraph.
-- Any chain but Base, any endpoint but publicnode.
+- Call handlers, and so `trace_filter`.
+- Any chain but Base.
 - Docker Desktop on macOS, which is where most developers will run it.
+- An RPC on the developer's own machine, such as Anvil. A container cannot reach the host's
+  `localhost`, so sib will have to rewrite it.
 
 ## Second run: `sib up`, and the brake
 
@@ -95,3 +97,21 @@ appeared in graph-node's log and did not affect the sync; unexplained.
 A contract with a transfer in every block is the worst case for this, since graph-node fetches
 every block. At 15 requests a second it synced about ten blocks a second on a chain producing
 about five, so it gains slowly. A quieter subgraph needs far fewer requests.
+
+## Third run: a paid endpoint, calls, a window and a failure
+
+Later the same day, with a dedicated GraphOps RPC key (`sib-dev`), still on the busy ThinkPad.
+
+| What | Result |
+|---|---|
+| Preflight, GraphOps Base, start block 1,000,000 | Passes. 10,000-block ranges, logs and state at the start. publicnode refuses the same subgraph: logs yes, state no |
+| A mapping that calls `totalSupply()`, read from the real compiled wasm | The preflight adds the state check, and the config declares `features = ["archive"]`, which it does not for an events-only subgraph |
+| `sib up --last 3000 --rps 50` on a manifest that starts at block 30,000,000 | Deployed with the start block moved to 3,000 back. The calls returned values, visible in `_logs` |
+| A mapping that dereferences null on its 300th transfer | `sib status` exits 1 with the file, line, handler and block, and says it is deterministic |
+| Two stacks at once, `--port-offset 20000` and `21000` | No collision |
+
+At 50 requests a second on this endpoint the busy-contract sync ran at about 18 blocks a second.
+That is a count over one minute on a loaded machine, not a benchmark.
+
+The generated `nginx.conf` holds the RPC URL, and so the key. It sits in `.sib/`, which sib
+writes a `.gitignore` for.
