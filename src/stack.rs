@@ -213,6 +213,10 @@ pub fn compose_yaml_with(
     report: &Report,
     graph_node_image: Option<&str>,
 ) -> String {
+    let log_addresses = report
+        .max_log_addresses
+        .map(|n| format!("\n      GRAPH_ETH_GET_LOGS_MAX_CONTRACTS: \"{n}\""))
+        .unwrap_or_default();
     let graph_node = match graph_node_image {
         Some(image) => format!("image: {image}"),
         None => format!("image: {GRAPH_NODE_IMAGE}\n    platform: linux/amd64"),
@@ -249,7 +253,7 @@ services:
       node_id: default
       GRAPH_LOG: info
       GRAPH_STORE_WRITE_BATCH_DURATION: "0"
-      GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE: "{range}"
+      GRAPH_ETHEREUM_MAX_BLOCK_RANGE_SIZE: "{range}"{log_addresses}
       GRAPH_DISABLE_FAIL_FAST: "true"
       ETHEREUM_REORG_THRESHOLD: "20"
       ETHEREUM_POLLING_INTERVAL: "5000"
@@ -304,6 +308,7 @@ mod tests {
             start: 10,
             findings: vec![],
             max_block_range: range,
+            max_log_addresses: None,
             features,
         }
     }
@@ -356,6 +361,17 @@ mod tests {
         let own = compose_yaml_with("p", Ports::default(), 15, &r, Some("me/graph-node:arm64"));
         assert!(own.contains("  graph-node:\n    image: me/graph-node:arm64\n    depends_on"));
         assert!(!own.contains("platform:"));
+    }
+
+    #[test]
+    fn graph_node_is_told_the_endpoints_address_cap() {
+        let mut r = report(Some(2000), vec![]);
+        assert!(!compose_yaml("p", Ports::default(), 15, &r).contains("GET_LOGS_MAX_CONTRACTS"));
+        r.max_log_addresses = Some(10);
+        assert!(
+            compose_yaml("p", Ports::default(), 15, &r)
+                .contains("      GRAPH_ETH_GET_LOGS_MAX_CONTRACTS: \"10\"\n")
+        );
     }
 
     #[test]
