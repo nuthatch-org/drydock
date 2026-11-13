@@ -6,7 +6,7 @@ on:
 
 env:
   # The commands CI runs live in yatr.toml. Bump deliberately.
-  YATR_VERSION: "1.1.0"
+  YATR_VERSION: "1.1.1"
 
 jobs:
   check:
