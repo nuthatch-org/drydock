@@ -1,0 +1,44 @@
+# yatr - https://github.com/cargopete/yatr
+#
+# The ci task is what .github/workflows/ci.yml gates on, and the workflow calls these tasks by
+# name. release.yml and graph-node-image.yml stay as they are: they build for other targets and
+# publish.
+
+[env]
+CARGO_TERM_COLOR = "always"
+
+[settings]
+cache = true
+
+[tasks.fmt]
+desc = "Format the tree"
+run = ["cargo fmt"]
+no_cache = true
+
+[tasks.fmt-check]
+desc = "Fail if the tree is unformatted"
+run = ["cargo fmt --check"]
+sources = ["src/**/*.rs"]
+
+# ui/index.html is compiled in with include_str!.
+[tasks.lint]
+desc = "Clippy with warnings denied"
+run = ["cargo clippy --all-targets -- -D warnings"]
+sources = ["src/**/*.rs", "ui/**", "Cargo.toml", "Cargo.lock"]
+
+[tasks.test]
+desc = "Run the test suite"
+run = ["cargo test"]
+sources = ["src/**/*.rs", "ui/**", "Cargo.toml", "Cargo.lock"]
+watch = ["src/**/*.rs", "ui/**"]
+
+[tasks.build]
+desc = "Release build of the drydock binary"
+run = ["cargo build --release --locked"]
+sources = ["src/**/*.rs", "ui/**", "Cargo.toml", "Cargo.lock"]
+outputs = ["target/release/drydock"]
+
+[tasks.ci]
+desc = "What CI gates on: fmt-check, lint, test"
+depends = ["fmt-check", "lint", "test"]
+run = []
